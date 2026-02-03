@@ -1,0 +1,14 @@
+# Dumpster configuration
+dumps:
+  - name: sources
+    #    extensions:
+    #      - .py
+    #      - .md
+    #      - .json
+    #      - .toml
+    contents:
+      - app
+      - tests
+      - README.md
+      - pyproject.toml
+      - frontend
