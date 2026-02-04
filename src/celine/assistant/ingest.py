@@ -23,11 +23,3 @@ async def ingest_file(
     }
     result = await upsert_documents_from_file(local_path=local_path, metadata=metadata)
     return {"status": "indexed", "result": result}
-
-
-class IngestService:
-    async def force_reload(self) -> dict[str, Any]:
-        return {
-            "status": "noop",
-            "detail": "Reload deprecated; ingestion is API-driven",
-        }

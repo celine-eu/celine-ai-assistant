@@ -11,7 +11,6 @@ from .qdrant_setup import ensure_collection
 from .settings import settings
 from .logging_ import configure_logging
 from .routes import router
-from .ingest import IngestService
 from .auth import AuthError
 
 configure_logging(settings.log_level)
@@ -23,10 +22,6 @@ async def lifespan(app: FastAPI):
 
     ensure_collection()
 
-    ingest_service = IngestService()
-    app.state.ingest_service = ingest_service
-    await ingest_service.start()
-
     app.state.history_store = HistoryStore(settings.chat_db_path)
 
     log.info("app started")
@@ -34,8 +29,6 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        # --- shutdown ---
-        await ingest_service.stop()
         log.info("app stopped")
 
 

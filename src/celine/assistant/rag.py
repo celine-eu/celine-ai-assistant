@@ -9,12 +9,18 @@ from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import BaseNode
 
+from celine.assistant.settings import settings
+
 _index_lock = asyncio.Lock()
 _index: Optional[VectorStoreIndex] = None
 
 
 def _get_index() -> VectorStoreIndex:
     global _index
+
+    if settings.openai_api_key:
+        os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
+
     if _index is None:
         _index = VectorStoreIndex.from_documents([])
     return _index
