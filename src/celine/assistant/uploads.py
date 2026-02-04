@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import pathlib
 import time
 import uuid
 from dataclasses import dataclass
-from typing import BinaryIO
+from typing import Iterator
 
 import fsspec
 
 from .settings import settings
-
-log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -36,29 +33,30 @@ def _fs_and_root():
         return fs, uri
 
     scheme = uri.split("://", 1)[0]
-    if scheme == "s3":
-        client_kwargs = {}
-        if settings.s3_endpoint_url:
-            client_kwargs["endpoint_url"] = settings.s3_endpoint_url
-        fs = fsspec.filesystem(
-            "s3",
-            key=settings.s3_access_key_id,
-            secret=settings.s3_secret_access_key,
-            client_kwargs=client_kwargs,
-        )
-        return fs, uri
     fs = fsspec.filesystem(scheme)
     return fs, uri
 
 
 def _sanitize(name: str) -> str:
     name = os.path.basename(name).strip().replace(" ", "_")
-    return "".join(ch for ch in name if ch.isalnum() or ch in ("_", "-", ".", "+"))[:200] or "file"
+    return (
+        "".join(ch for ch in name if ch.isalnum() or ch in ("_", "-", ".", "+"))[:200]
+        or "file"
+    )
+
+
+def _subdir(scope: str, owner_user_id: str | None, stamp: int) -> str:
+    if scope == "system":
+        return f"_system/{stamp}"
+    if not owner_user_id:
+        raise ValueError("owner_user_id required for user scope")
+    return f"{owner_user_id}/{stamp}"
 
 
 async def store_upload(
     *,
-    user_id: str,
+    scope: str,
+    owner_user_id: str | None,
     filename: str,
     content_type: str | None,
     data: bytes,
@@ -67,7 +65,7 @@ async def store_upload(
     safe = _sanitize(filename)
     stamp = int(time.time())
     uid = uuid.uuid4().hex[:10]
-    subdir = f"{user_id}/{stamp}"
+    subdir = _subdir(scope, owner_user_id, stamp)
     target = str(pathlib.PurePosixPath(root).joinpath(subdir, f"{uid}_{safe}"))
 
     def _run() -> StoredFile:
@@ -84,3 +82,24 @@ async def store_upload(
         )
 
     return await asyncio.to_thread(_run)
+
+
+def open_upload_stream(path: str, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
+    fs, _ = _fs_and_root()
+    with fs.open(path, "rb") as f:
+        while True:
+            buf = f.read(chunk_size)
+            if not buf:
+                break
+            yield buf
+
+
+async def delete_upload(path: str) -> None:
+    fs, _ = _fs_and_root()
+
+    def _run() -> None:
+        if fs.exists(path):
+            fs.rm(path)
+        return None
+
+    await asyncio.to_thread(_run)

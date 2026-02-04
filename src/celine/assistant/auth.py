@@ -38,22 +38,28 @@ class UserInfo(BaseModel):
     last_name: str = Field(default="")
     email: str = Field(default="")
     groups: list[str] = Field(default_factory=list)
+    is_admin: bool = Field(default=False)
 
     @staticmethod
-    def from_identity(user: UserIdentity):
+    def from_identity(user: UserIdentity) -> "UserInfo":
         info = UserInfo()
-
-        claims = user.raw.get("claims", {})
+        claims = user.raw.get("claims", {}) or {}
 
         info.user_id = user.user_id
-        info.username = claims.get("sub", "")
-        info.full_name = claims.get("name", "")
-        info.first_name = claims.get("given_name", "")
-        info.last_name = claims.get("family_name", "")
+        info.username = (
+            claims.get("sub", "") or claims.get("preferred_username", "") or ""
+        )
+        info.full_name = claims.get("name", "") or ""
+        info.first_name = claims.get("given_name", "") or ""
+        info.last_name = claims.get("family_name", "") or ""
+        info.email = claims.get("email", "") or ""
 
-        info.email = claims.get("email", "")
-        info.groups = claims.get("groups", [])
+        groups = claims.get("groups", []) or []
+        if isinstance(groups, str):
+            groups = [g.strip() for g in groups.split(",") if g.strip()]
+        info.groups = list(groups)
 
+        info.is_admin = settings.admin_group in set(info.groups)
         return info
 
 
@@ -61,8 +67,20 @@ class AuthError(Exception):
     pass
 
 
+def is_admin(user: UserIdentity) -> bool:
+    claims = user.raw.get("claims", {}) or {}
+    groups = claims.get("groups", []) or []
+    if isinstance(groups, str):
+        groups = [g.strip() for g in groups.split(",") if g.strip()]
+    return settings.admin_group in set(groups)
+
+
 def _extract_jwt_from_authorization(request: Request) -> str | None:
     return request.headers.get("x-auth-request-access-token")
+
+
+def _issuer_to_discovery_url(issuer: str) -> str:
+    return issuer.rstrip("/") + "/.well-known/openid-configuration"
 
 
 async def _http_get_json(url: str) -> dict[str, Any]:
@@ -73,10 +91,6 @@ async def _http_get_json(url: str) -> dict[str, Any]:
         if not isinstance(data, dict):
             raise AuthError("HTTP JSON response is not an object")
         return data
-
-
-def _issuer_to_discovery_url(issuer: str) -> str:
-    return issuer.rstrip("/") + "/.well-known/openid-configuration"
 
 
 async def _get_discovery(issuer: str) -> dict[str, Any]:
@@ -122,8 +136,8 @@ def _select_jwk(jwks: dict[str, Any], kid: str) -> dict[str, Any]:
 def _best_effort_user_from_claims(claims: dict[str, Any]) -> str | None:
     for k in ("sid", "sub", "preferred_username", "name", "email", "user", "uid"):
         v = claims.get(k)
-        if isinstance(v, str) and v:
-            return v
+        if isinstance(v, str) and v.strip():
+            return v.strip()
     return None
 
 
@@ -134,6 +148,9 @@ def _unverified_issuer(token: str) -> str | None:
 
 
 async def _jwks_url_from_token(token: str) -> str:
+    if settings.oauth2_jwks_url:
+        return settings.oauth2_jwks_url
+
     iss = _unverified_issuer(token)
     if not iss:
         raise AuthError("JWT missing iss claim")
@@ -173,18 +190,55 @@ def _verify_jwt(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _trusted_identity_from_headers(request: Request) -> UserIdentity | None:
+    if not settings.oauth2_trust_headers:
+        return None
+
+    user = request.headers.get("x-auth-request-user") or request.headers.get(
+        "x-auth-request-email"
+    )
+    if not user:
+        return None
+
+    groups_raw = (
+        request.headers.get("x-auth-request-groups")
+        or request.headers.get("x-auth-request-user-groups")
+        or ""
+    )
+    groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
+
+    claims: dict[str, Any] = {
+        "sub": user,
+        "email": request.headers.get("x-auth-request-email") or "",
+        "name": request.headers.get("x-auth-request-preferred-username") or user,
+        "groups": groups,
+    }
+
+    return UserIdentity(
+        user_id=user, raw={"source": "trusted-headers", "claims": claims}
+    )
+
+
 async def get_user_identity(request: Request) -> UserIdentity:
     token = _extract_jwt_from_authorization(request)
-    if not token:
-        raise AuthError("No user identity found (missing headers/JWT)")
 
-    try:
-        jwks_url = await _jwks_url_from_token(token)
-        jwks = await _get_jwks(jwks_url)
-        claims = _verify_jwt(token, jwks)
-        user_id = _best_effort_user_from_claims(claims) or "unknown"
-        return UserIdentity(
-            user_id=user_id, raw={"source": "jwt-verified", "claims": claims}
-        )
-    except Exception as e:
-        raise AuthError(f"JWT verification failed: {e}") from e
+    if token:
+        try:
+            jwks_url = await _jwks_url_from_token(token)
+            jwks = await _get_jwks(jwks_url)
+            claims = _verify_jwt(token, jwks)
+            user_id = _best_effort_user_from_claims(claims) or "unknown"
+            return UserIdentity(
+                user_id=user_id, raw={"source": "jwt-verified", "claims": claims}
+            )
+        except Exception as e:
+            hdr_user = _trusted_identity_from_headers(request)
+            if hdr_user:
+                return hdr_user
+            raise AuthError(f"JWT verification failed: {e}") from e
+
+    hdr_user = _trusted_identity_from_headers(request)
+    if hdr_user:
+        return hdr_user
+
+    raise AuthError("No user identity found (missing headers/JWT)")

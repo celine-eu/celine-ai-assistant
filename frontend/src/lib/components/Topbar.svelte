@@ -1,13 +1,30 @@
 <script lang="ts">
     export let includeCitations = true;
     export let busy = false;
+    export let isAdmin = false;
 
     export let onReindex: () => Promise<void>;
     export let onReload: () => Promise<void>;
 </script>
 
 <header class="topbar">
-    <div class="brand">Chat</div>
+    <div class="left">
+        <div class="brand">
+            <a
+                class="brandLink"
+                on:click={() => (window.location.href = "/")}
+                on:keydown={(e) =>
+                    e.key === "Enter" && (window.location.href = "/")}
+                href="/">CELINE Assistant</a
+            >
+        </div>
+
+        <nav class="nav">
+            <a class="navLink" href="/">Chat</a>
+            <a class="navLink" href="/history">History</a>
+            <a class="navLink" href="/attachments">Attachments</a>
+        </nav>
+    </div>
 
     <div class="actions">
         <label class="toggle">
@@ -15,12 +32,14 @@
             <span>Citations</span>
         </label>
 
-        <button type="button" on:click={() => onReindex()} disabled={busy}
-            >Reindex</button
-        >
-        <button type="button" on:click={() => onReload()} disabled={busy}
-            >Reload</button
-        >
+        {#if isAdmin}
+            <button type="button" on:click={() => onReindex()} disabled={busy}
+                >Reindex</button
+            >
+            <button type="button" on:click={() => onReload()} disabled={busy}
+                >Reload</button
+            >
+        {/if}
     </div>
 </header>
 
@@ -35,8 +54,37 @@
         background: #fff;
     }
 
+    .left {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
     .brand {
-        font-weight: 600;
+        font-weight: 700;
+    }
+
+    .brandLink {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .nav {
+        display: flex;
+        gap: 12px;
+    }
+
+    .navLink {
+        color: #0f172a;
+        text-decoration: none;
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+    }
+
+    .navLink:hover {
+        background: #f8fafc;
+        border-color: #e2e8f0;
     }
 
     .actions {

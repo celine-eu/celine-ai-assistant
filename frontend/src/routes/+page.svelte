@@ -3,8 +3,16 @@
   import DropOverlay from "$lib/components/DropOverlay.svelte";
   import MessageList from "$lib/components/MessageList.svelte";
   import Topbar from "$lib/components/Topbar.svelte";
+  import { onMount } from "svelte";
 
-  import { chatStream, reindex, reload, uploadFile } from "$lib/api";
+  import {
+    chatStream,
+    fetchConversationMessages,
+    getUser,
+    reindex,
+    reload,
+    uploadFile,
+  } from "$lib/api";
 
   type SourceChunk = {
     source: string;
@@ -12,6 +20,7 @@
     text: string;
     score?: number | null;
   };
+
   type Attachment = {
     id: string;
     filename: string;
@@ -19,7 +28,9 @@
     size: number;
     previewUrl?: string;
     uri?: string;
+    attachmentId?: string;
   };
+
   type Msg = {
     role: "user" | "assistant";
     content: string;
@@ -30,21 +41,43 @@
   let includeCitations = true;
   let busy = false;
   let errorBanner: string | null = null;
-  let conversationId: string | null = null;
 
+  let conversationId: string | null = null;
   let messages: Msg[] = [];
   let input = "";
 
-  // Attachments live in the page since they affect send/upload flow
   let attachments: Attachment[] = [];
   const attachmentFiles = new Map<string, File>();
 
-  // drag/drop overlay state
   let dragging = false;
   let dragDepth = 0;
 
   let messageList: InstanceType<typeof MessageList> | null = null;
   let composer: InstanceType<typeof Composer> | null = null;
+
+  let isAdmin = false;
+
+  onMount(async () => {
+    try {
+      const u = await getUser();
+      isAdmin = Boolean(u?.is_admin);
+
+      const url = new URL(window.location.href);
+      const cid = url.searchParams.get("conversation_id");
+      if (cid) {
+        conversationId = cid;
+        const res = await fetchConversationMessages(cid);
+        const loaded: Msg[] = (res?.messages ?? []).map((m: any) => ({
+          role: m.role,
+          content: m.content,
+        }));
+        messages = loaded;
+        await messageList?.scrollToBottom(true);
+      }
+    } catch (e) {
+      errorBanner = e instanceof Error ? e.message : String(e);
+    }
+  });
 
   function addFiles(files: FileList | null) {
     if (!files) return;
@@ -73,41 +106,39 @@
   function removeAttachment(id: string) {
     const a = attachments.find((x) => x.id === id);
     if (a?.previewUrl) URL.revokeObjectURL(a.previewUrl);
-    attachmentFiles.delete(id);
     attachments = attachments.filter((x) => x.id !== id);
+    attachmentFiles.delete(id);
   }
 
-  async function uploadAllAttachments(): Promise<Attachment[]> {
-    if (!attachments.length) return [];
-
-    const uploaded: Attachment[] = [];
-    for (const a of attachments) {
+  async function uploadAllAttachments(
+    local: Attachment[],
+  ): Promise<Attachment[]> {
+    const out: Attachment[] = [];
+    for (const a of local) {
       const f = attachmentFiles.get(a.id);
       if (!f) continue;
-      const res = await uploadFile(f); // should throw on non-2xx
-      uploaded.push({
+
+      const res = await uploadFile(f);
+      out.push({
         ...a,
-        uri: res?.uri ?? res?.data?.uri ?? undefined,
+        uri: res?.uri,
+        attachmentId: res?.attachment_id,
       });
     }
-    return uploaded;
+    return out;
   }
 
   async function send() {
-    const text = input.trim();
-    if (!text && !attachments.length) return;
+    const localText = input.trim();
+    if (!localText || busy) return;
 
-    busy = true;
     errorBanner = null;
-
-    // snapshot & clear composer state immediately
-    const localText = text;
-    const localAttachments = attachments;
+    busy = true;
     input = "";
-    attachments = [];
-    attachmentFiles.clear();
 
-    // optimistic add user + assistant placeholders
+    const localAttachments = attachments;
+    attachments = [];
+
     messages = [
       ...messages,
       {
@@ -129,7 +160,8 @@
     const assistantIdx = messages.length - 1;
 
     try {
-      const uploaded = await uploadAllAttachments();
+      const uploaded = await uploadAllAttachments(localAttachments);
+
       let acc = "";
       let pendingSources: SourceChunk[] | undefined;
 
@@ -148,6 +180,7 @@
           acc += String(t);
           messages[assistantIdx] = { ...messages[assistantIdx], content: acc };
           messages = messages;
+          await messageList?.scrollToBottom();
           continue;
         }
 
@@ -171,12 +204,12 @@
           const msg =
             (evt as any).data?.message ??
             (evt as any).message ??
+            (evt as any).data ??
             "Unknown streaming error";
           throw new Error(String(msg));
         }
       }
 
-      // after stream ends, commit final assistant message metadata
       messages[assistantIdx] = {
         ...messages[assistantIdx],
         content: acc,
@@ -184,18 +217,18 @@
         attachments: uploaded.length ? uploaded : undefined,
       };
       messages = messages;
+      await messageList?.scrollToBottom(true);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      errorBanner = msg;
-      messages[assistantIdx] = {
-        ...messages[assistantIdx],
-        content: `Error: ${msg}`,
-      };
-      messages = messages;
+      errorBanner = e instanceof Error ? e.message : String(e);
+
+      messages = messages.filter((_, idx) => idx !== assistantIdx);
+      await messageList?.scrollToBottom(true);
     } finally {
       for (const a of localAttachments)
         if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+      attachmentFiles.clear();
       busy = false;
+      composer?.focusInput();
     }
   }
 
@@ -235,44 +268,41 @@
   }
 </script>
 
-<svelte:window
-  on:dragenter={onDragEnter}
-  on:dragleave={onDragLeave}
+<div
+  class="page"
+  role="document"
+  on:dragenter|preventDefault={onDragEnter}
+  on:dragleave|preventDefault={onDragLeave}
   on:dragover|preventDefault={() => {}}
   on:drop|preventDefault={onDrop}
-/>
-
-<DropOverlay visible={dragging} />
-
-<div class="page">
-  <Topbar bind:includeCitations {busy} {onReindex} {onReload} />
+>
+  <Topbar {includeCitations} {busy} {isAdmin} {onReindex} {onReload} />
 
   {#if errorBanner}
     <div class="banner">{errorBanner}</div>
   {/if}
+
   <MessageList
     bind:this={messageList}
     {messages}
     showSources={includeCitations}
+    assistantLoading={busy}
   />
 
   <Composer
     bind:this={composer}
     bind:value={input}
     {busy}
-    attachments={attachments.map(({ id, filename, previewUrl }) => ({
-      id,
-      filename,
-      previewUrl,
-    }))}
+    {attachments}
     onAddFiles={addFiles}
     onRemoveAttachment={removeAttachment}
     onSend={send}
   />
+
+  <DropOverlay visible={dragging} />
 </div>
 
 <style>
-  /* Only page-level layout owns these containers, so it’s OK here */
   .page {
     height: 100vh;
     display: flex;

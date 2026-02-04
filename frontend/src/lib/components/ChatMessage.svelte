@@ -1,11 +1,12 @@
 <script lang="ts">
+    import Markdown from "./Markdown.svelte";
+
     export let role: "user" | "assistant";
     export let content: string;
     export let attachments:
         | { id: string; filename: string; previewUrl?: string }[]
         | undefined;
     export let sources: any[] | undefined;
-    export let renderMarkdown: (s: string) => string;
     export let showSources: boolean;
 </script>
 
@@ -14,7 +15,7 @@
         <div class="role">{role === "user" ? "You" : "Assistant"}</div>
 
         {#if role === "assistant"}
-            <div>{@html renderMarkdown(content)}</div>
+            <div><Markdown text={content} /></div>
         {:else}
             <div class="content">{content}</div>
 
@@ -36,7 +37,7 @@
                 <summary>Sources</summary>
                 <ul>
                     {#each sources as s}
-                        <li><pre>{s.text}</pre></li>
+                        <li><Markdown text={s.text} /></li>
                     {/each}
                 </ul>
             </details>

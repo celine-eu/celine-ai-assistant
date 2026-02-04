@@ -1,5 +1,3 @@
-// frontend/src/libs/api.ts
-
 export type ChatStreamEvent =
   | { type: "meta"; data: { conversation_id?: string } }
   | { type: "token"; data: string }
@@ -73,9 +71,53 @@ export async function getUser() {
 }
 
 export async function reindex() {
-  await fetch("/api/admin/ingest", { method: "POST", credentials: "include" });
+  const res = await fetch("/api/admin/ingest", { method: "POST", credentials: "include" });
+  if (!res.ok) throw new Error(await res.text());
 }
 
 export async function reload() {
-  await fetch("/api/admin/reload", { method: "POST", credentials: "include" });
+  const res = await fetch("/api/admin/reload", { method: "POST", credentials: "include" });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+export async function listConversations() {
+  const res = await fetch("/api/conversations", { credentials: "include" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteConversation(conversationId: string) {
+  const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function fetchConversationMessages(conversationId: string) {
+  const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function listAttachments() {
+  const res = await fetch("/api/attachments", { credentials: "include" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export function attachmentRawUrl(attachmentId: string) {
+  return `/api/attachments/${encodeURIComponent(attachmentId)}/raw`;
+}
+
+export async function deleteAttachment(attachmentId: string) {
+  const res = await fetch(`/api/attachments/${encodeURIComponent(attachmentId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }

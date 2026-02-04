@@ -21,12 +21,35 @@ dependencies = [
   "python-multipart>=0.0.9"
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
+  "debugpy>=1.8.20",
   "dumpster-cli>=1.4.0",
-  "ruff>=0.6.0",
 ]
 
-[tool.ruff]
-line-length = 100
-target-version = "py311"
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["celine.assistant*"]
+exclude = ["tests*"]
+
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+update_pyproject_toml = true 
+commit_parser = "conventional"
+
+build_command = """
+    uv lock --upgrade-package "$PACKAGE_NAME"
+    git add uv.lock
+    uv build
+"""
+
+[tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf", "chore"]
+parse_squash_commits = true
+ignore_merge_commits = true
+

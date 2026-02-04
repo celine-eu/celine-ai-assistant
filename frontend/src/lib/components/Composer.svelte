@@ -63,6 +63,7 @@
             class="btn ghost"
             on:click={pickFiles}
             disabled={busy}
+            tabindex="-3"
         >
             Upload
         </button>
@@ -74,12 +75,14 @@
             placeholder="Ask something…"
             disabled={busy}
             aria-label="Chat message"
+            tabindex="0"
         />
 
         <button
             type="submit"
             class="btn primary"
             disabled={busy || (!value.trim() && attachments.length === 0)}
+            tabindex="-2"
         >
             Send
         </button>

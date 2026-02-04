@@ -54,5 +54,7 @@ class Settings(BaseSettings):
         default=None, alias="OAUTH2_JWT_COOKIE_NAME"
     )
 
+    admin_group: str = Field(default="admins", alias="ADMIN_GROUP")
+
 
 settings = Settings()
