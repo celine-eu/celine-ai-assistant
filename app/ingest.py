@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -219,17 +220,15 @@ async def ingest_once(manifest: Manifest) -> dict[str, Any]:
                 vector_store = _vector_store()
                 embed_model = _embedding_model()
                 pipeline = IngestionPipeline(
-                    transformations=[_node_parser()],
+                    transformations=[_node_parser(), embed_model],
                     vector_store=vector_store,
-                    embed_model=embed_model,
                 )
                 try:
                     await asyncio.to_thread(pipeline.run, documents=[doc])
                 except Exception:
                     fallback = IngestionPipeline(
-                        transformations=[_fallback_node_parser()],
+                        transformations=[_fallback_node_parser(), embed_model],
                         vector_store=vector_store,
-                        embed_model=embed_model,
                     )
                     await asyncio.to_thread(fallback.run, documents=[doc])
             finally:
@@ -277,14 +276,15 @@ class IngestService:
         log.info("ingest_started", extra={"request_id": "-", "user_id": "-"})
 
     async def stop(self) -> None:
-        self._stop.set()
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except Exception:
-                pass
-        log.info("ingest_stopped", extra={"request_id": "-", "user_id": "-"})
+        if not self._task:
+            return
+
+        task = self._task
+        self._task = None
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def force_reload(self) -> dict[str, Any]:
         async with self._lock:
@@ -296,11 +296,12 @@ class IngestService:
             return await ingest_once(self._manifest)
 
     async def _run_loop(self) -> None:
-        while not self._stop.is_set():
-            try:
-                await self.ingest_now()
-            except Exception:
-                log.exception(
-                    "ingest_loop_error", extra={"request_id": "-", "user_id": "-"}
-                )
-            await asyncio.sleep(max(5, settings.docs_poll_interval_seconds))
+        try:
+            while True:
+                try:
+                    await self.ingest_now()
+                except Exception as e:
+                    log.exception(f"ingest_loop_error: {e}")
+                await asyncio.sleep(max(5, settings.docs_poll_interval_seconds))
+        except asyncio.CancelledError:
+            raise

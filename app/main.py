@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # --- startup ---
+
     ensure_collection()
 
     ingest_service = IngestService()
@@ -29,14 +29,14 @@ async def lifespan(app: FastAPI):
 
     app.state.history_store = HistoryStore(settings.chat_db_path)
 
-    log.info("app_started", extra={"request_id": "-", "user_id": "-"})
+    log.info("app started")
 
     try:
         yield
     finally:
         # --- shutdown ---
         await ingest_service.stop()
-        log.info("app_stopped", extra={"request_id": "-", "user_id": "-"})
+        log.info("app stopped")
 
 
 app = FastAPI(

@@ -9,7 +9,7 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 
-from .auth import get_user_identity, UserIdentity
+from .auth import UserInfo, get_user_identity, UserIdentity
 from .models import ChatRequest, HealthResponse
 from .rag import build_retriever, retrieve, node_to_source
 from .openai_stream import stream_chat
@@ -175,6 +175,15 @@ async def get_messages(
     except Exception as e:
         log.exception("history_list_failed", extra=log_ctx)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/user")
+async def get_user(
+    request: Request,
+    user: UserIdentity = Depends(get_user_identity),
+) -> UserInfo:
+    info = UserInfo.from_identity(user)
+    return info
 
 
 @router.post("/admin/ingest")

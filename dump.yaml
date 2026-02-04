@@ -1,11 +1,16 @@
 # Dumpster configuration
 dumps:
   - name: sources
-    #    extensions:
-    #      - .py
-    #      - .md
-    #      - .json
-    #      - .toml
+    extensions:
+      - .py
+      - .md
+      - .json
+      - .ts
+      - .svelte
+      - .json
+      - .toml
+      - .yaml
+      - .yml
     contents:
       - app
       - tests

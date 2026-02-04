@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 from fastapi import Request
 from jose import jwt
+from pydantic import BaseModel, Field
 
 from .settings import settings
 
@@ -27,6 +28,33 @@ _cache_lock = asyncio.Lock()
 class UserIdentity:
     user_id: str
     raw: dict[str, Any]
+
+
+class UserInfo(BaseModel):
+    user_id: str = Field(default="")
+    username: str = Field(default="")
+    full_name: str = Field(default="")
+    first_name: str = Field(default="")
+    last_name: str = Field(default="")
+    email: str = Field(default="")
+    groups: list[str] = Field(default_factory=list)
+
+    @staticmethod
+    def from_identity(user: UserIdentity):
+        info = UserInfo()
+
+        claims = user.raw.get("claims", {})
+
+        info.user_id = user.user_id
+        info.username = claims.get("sub", "")
+        info.full_name = claims.get("name", "")
+        info.first_name = claims.get("given_name", "")
+        info.last_name = claims.get("family_name", "")
+
+        info.email = claims.get("email", "")
+        info.groups = claims.get("groups", [])
+
+        return info
 
 
 class AuthError(Exception):
@@ -92,7 +120,7 @@ def _select_jwk(jwks: dict[str, Any], kid: str) -> dict[str, Any]:
 
 
 def _best_effort_user_from_claims(claims: dict[str, Any]) -> str | None:
-    for k in ("name", "preferred_username", "email", "user", "sub", "uid"):
+    for k in ("sid", "sub", "preferred_username", "name", "email", "user", "uid"):
         v = claims.get(k)
         if isinstance(v, str) and v:
             return v
