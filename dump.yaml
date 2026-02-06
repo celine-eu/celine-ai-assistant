@@ -6,14 +6,40 @@ dumps:
       - .md
       - .json
       - .ts
+      - .js
       - .svelte
       - .json
       - .toml
       - .yaml
       - .yml
     contents:
-      - app
+      - src
       - tests
       - README.md
       - pyproject.toml
       - frontend
+  - name: frontend
+    extensions:
+      - .md
+      - .json
+      - .ts
+      - .js
+      - .svelte
+      - .yaml
+      - .yml
+    contents:
+      - README.md
+      - frontend
+  - name: backend
+    extensions:
+      - .py
+      - .md
+      - .json
+      - .toml
+      - .yaml
+      - .yml
+    contents:
+      - src
+      - tests
+      - README.md
+      - pyproject.toml

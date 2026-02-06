@@ -162,6 +162,10 @@
     try {
       const uploaded = await uploadAllAttachments(localAttachments);
 
+      const attachmentIds = uploaded
+        .map((a) => a.attachmentId)
+        .filter((x): x is string => typeof x === "string" && x.length > 0);
+
       let acc = "";
       let pendingSources: SourceChunk[] | undefined;
 
@@ -170,6 +174,7 @@
         include_citations: includeCitations,
         top_k: 5,
         conversation_id: conversationId,
+        attachment_ids: attachmentIds,
       })) {
         if (evt.type === "token") {
           const t =

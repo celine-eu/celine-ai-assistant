@@ -30,11 +30,19 @@ async def describe_image(*, image_bytes: bytes, filename: str | None = None) -> 
     resp = await client.chat.completions.create(
         model=settings.openai_vision_model,
         messages=[
-            {"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-            ]},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    },
+                ],
+            },
         ],
         temperature=0.2,
     )
-    return (resp.choices[0].message.content or "").strip()
+
+    res = (resp.choices[0].message.content or "").strip()
+    return res

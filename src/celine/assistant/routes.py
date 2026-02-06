@@ -16,6 +16,8 @@ from .rag import build_retriever, retrieve, node_to_source
 from .openai_stream import stream_chat
 from .uploads import store_upload, open_upload_stream, delete_upload
 from .settings import settings
+from .openai_vision import describe_image
+from .rag import upsert_documents_from_text
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +28,61 @@ _retriever = build_retriever()
 def _sse(event_type: str, data) -> str:
     payload = {"type": event_type, "data": data}
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _load_authorized_attachments(
+    request: Request,
+    user: UserIdentity,
+    attachment_ids: list[str],
+) -> list[dict]:
+    out: list[dict] = []
+    for att_id in attachment_ids:
+        att = await request.app.state.history_store.get_attachment_any(att_id)
+        if not att:
+            continue
+
+        if att["scope"] == "system":
+            out.append(att)
+            continue
+
+        if att["scope"] == "user":
+            if att.get("owner_user_id") == user.user_id or is_admin(user):
+                out.append(att)
+                continue
+
+        raise HTTPException(status_code=403, detail="Forbidden attachment access")
+    return out
+
+
+def _attachment_context_block(atts: list[dict]) -> dict:
+    lines: list[str] = []
+    for a in atts:
+        fn = a.get("filename") or "file"
+        ct = a.get("content_type") or ""
+        scope = a.get("scope")
+        caption = (a.get("caption") or "").strip()
+
+        lines.append(f"- filename: {fn}")
+        if ct:
+            lines.append(f"  content_type: {ct}")
+        lines.append(f"  scope: {scope}")
+        if caption:
+            lines.append(f"  description: {caption}")
+        else:
+            lines.append("  description: (no description available)")
+
+    text = (
+        "User attached the following files. Treat these as highly relevant context for this message:\n"
+        + "\n".join(lines)
+    )
+
+    return {
+        "source": "attached_files",
+        "title": "Attached files",
+        "text": text,
+        "score": 1.0,
+        "metadata": {"kind": "attachment_context"},
+    }
 
 
 def require_admin(user: UserIdentity = Depends(get_user_identity)) -> UserIdentity:
@@ -49,6 +106,14 @@ async def _read_upload_or_413(file: UploadFile) -> bytes:
     return data
 
 
+def _is_image(filename: str, content_type: str | None) -> bool:
+    if content_type and content_type.startswith("image/"):
+        return True
+    return filename.lower().endswith(
+        (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif")
+    )
+
+
 @router.post("/upload")
 async def upload_user(
     request: Request,
@@ -65,6 +130,10 @@ async def upload_user(
         data=data,
     )
 
+    caption: str | None = None
+    if _is_image(stored.filename, stored.content_type):
+        caption = await describe_image(image_bytes=data)
+
     att_id = await request.app.state.history_store.record_attachment(
         scope="user",
         owner_user_id=user.user_id,
@@ -73,27 +142,32 @@ async def upload_user(
         filename=stored.filename,
         content_type=stored.content_type,
         size_bytes=stored.size_bytes,
+        caption=caption,
     )
 
-    if stored.uri.startswith("file://"):
-        local_path = stored.uri[len("file://") :]
-        await ingest_file(
-            local_path=local_path,
-            source_uri=stored.uri,
-            scope="user",
-            owner_user_id=user.user_id,
-            original_filename=stored.filename,
-            content_type=stored.content_type,
+    if caption:
+        await upsert_documents_from_text(
+            text=f"Image description for {stored.filename}:\n{caption}",
+            metadata={
+                "attachment_id": att_id,
+                "source_uri": stored.uri,
+                "filename": stored.filename,
+                "content_type": stored.content_type,
+                "scope": "user",
+                "owner_user_id": user.user_id,
+                "kind": "image_caption",
+            },
         )
 
     return {
-        "status": "indexed",
+        "status": "indexed" if caption else "stored",
         "attachment_id": att_id,
         "uri": stored.uri,
         "filename": stored.filename,
         "content_type": stored.content_type,
         "size": stored.size_bytes,
         "scope": "user",
+        "caption": caption,
     }
 
 
@@ -113,6 +187,10 @@ async def upload_system(
         data=data,
     )
 
+    caption: str | None = None
+    if _is_image(stored.filename, stored.content_type):
+        caption = await describe_image(image_bytes=data)
+
     att_id = await request.app.state.history_store.record_attachment(
         scope="system",
         owner_user_id=None,
@@ -121,27 +199,32 @@ async def upload_system(
         filename=stored.filename,
         content_type=stored.content_type,
         size_bytes=stored.size_bytes,
+        caption=caption,
     )
 
-    if stored.uri.startswith("file://"):
-        local_path = stored.uri[len("file://") :]
-        await ingest_file(
-            local_path=local_path,
-            source_uri=stored.uri,
-            scope="system",
-            owner_user_id=None,
-            original_filename=stored.filename,
-            content_type=stored.content_type,
+    if caption:
+        await upsert_documents_from_text(
+            text=f"System image description for {stored.filename}:\n{caption}",
+            metadata={
+                "attachment_id": att_id,
+                "source_uri": stored.uri,
+                "filename": stored.filename,
+                "content_type": stored.content_type,
+                "scope": "system",
+                "owner_user_id": None,
+                "kind": "image_caption",
+            },
         )
 
     return {
-        "status": "indexed",
+        "status": "indexed" if caption else "stored",
         "attachment_id": att_id,
         "uri": stored.uri,
         "filename": stored.filename,
         "content_type": stored.content_type,
         "size": stored.size_bytes,
         "scope": "system",
+        "caption": caption,
     }
 
 
@@ -248,8 +331,14 @@ async def chat(
     except Exception:
         log.exception("history_append_user_failed")
 
+    attached = await _load_authorized_attachments(request, user, req.attachment_ids)
+    attachment_block = _attachment_context_block(attached) if attached else None
+
     nodes = await asyncio.to_thread(retrieve, _retriever, req.message, req.top_k)
     sources = [node_to_source(n) for n in nodes]
+
+    if attachment_block:
+        sources = [attachment_block, *sources]
 
     async def gen() -> AsyncGenerator[str, None]:
         assistant_text_parts: list[str] = []

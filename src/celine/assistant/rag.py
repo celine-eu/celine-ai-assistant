@@ -4,12 +4,14 @@ import asyncio
 import os
 from typing import Any, Dict, List, Optional, cast
 
-from llama_index.core import Document, VectorStoreIndex
+from llama_index.core import Document, Settings, VectorStoreIndex
 from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import BaseNode
+from llama_index.embeddings.openai import OpenAIEmbedding
 
 from celine.assistant.settings import settings
+from llama_index.core import Document, VectorStoreIndex
 
 _index_lock = asyncio.Lock()
 _index: Optional[VectorStoreIndex] = None
@@ -18,11 +20,16 @@ _index: Optional[VectorStoreIndex] = None
 def _get_index() -> VectorStoreIndex:
     global _index
 
-    if settings.openai_api_key:
+    if _index is None:
+        if not settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY missing")
+
         os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
 
-    if _index is None:
+        Settings.embed_model = OpenAIEmbedding(model=settings.openai_embed_model)
+
         _index = VectorStoreIndex.from_documents([])
+
     return _index
 
 
@@ -38,6 +45,19 @@ def retrieve(retriever: BaseRetriever, query: str, top_k: int) -> List[BaseNode]
         pass
     nodes = retriever.retrieve(query)
     return cast(List[BaseNode], nodes)
+
+
+async def upsert_documents_from_text(
+    *, text: str, metadata: dict[str, Any]
+) -> dict[str, Any]:
+    if not text.strip():
+        return {"inserted": 0}
+
+    async with _index_lock:
+        idx = _get_index()
+        doc = Document(text=text, metadata=dict(metadata))
+        _insert_into_index(idx, [doc])
+        return {"inserted": 1}
 
 
 def _node_text(node: BaseNode) -> str:
@@ -87,14 +107,24 @@ def node_to_source(node: BaseNode) -> Dict[str, Any]:
 def _insert_into_index(index: VectorStoreIndex, docs: list[Document]) -> None:
     ix: Any = index
 
-    for method in ("insert_documents", "insert", "add_documents"):
-        fn = getattr(ix, method, None)
-        if callable(fn):
-            fn(docs)
-            return
+    fn = getattr(ix, "insert_documents", None)
+    if callable(fn):
+        fn(docs)
+        return
+
+    fn = getattr(ix, "add_documents", None)
+    if callable(fn):
+        fn(docs)
+        return
+
+    fn = getattr(ix, "insert", None)
+    if callable(fn):
+        for d in docs:
+            fn(d)
+        return
 
     raise RuntimeError(
-        "VectorStoreIndex has no supported insert method (insert_documents/insert/add_documents)"
+        "VectorStoreIndex has no supported insert method (insert_documents/add_documents/insert)"
     )
 
 

@@ -12,10 +12,11 @@ class SourceChunk(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1)
-    conversation_id: str | None = Field(default=None)
-    include_citations: bool = Field(default=True)
-    top_k: int = Field(default=5, ge=1, le=20)
+    message: str
+    top_k: int = 5
+    include_citations: bool = True
+    conversation_id: str | None = None
+    attachment_ids: list[str] = Field(default_factory=list)
 
 
 class ChatMeta(BaseModel):
@@ -28,4 +29,4 @@ class SSEEvent(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    status: Literal["ok"]
+    status: str = "ok"

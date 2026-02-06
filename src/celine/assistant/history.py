@@ -30,6 +30,10 @@ class HistoryStore:
         con.execute("PRAGMA foreign_keys=ON;")
         return con
 
+    def _column_exists(self, con: sqlite3.Connection, table: str, column: str) -> bool:
+        rows = con.execute(f"PRAGMA table_info({table})").fetchall()
+        return any(r["name"] == column for r in rows)
+
     def _init_db(self) -> None:
         con = self._connect()
         try:
@@ -65,10 +69,24 @@ class HistoryStore:
                     filename TEXT NOT NULL,
                     content_type TEXT,
                     size_bytes INTEGER NOT NULL,
+                    caption TEXT,                        -- vision caption/description
+                    ocr_text TEXT,                       -- optional extracted text
                     created_at INTEGER NOT NULL
                 )
                 """
             )
+
+            if not self._column_exists(con, "attachments", "scope"):
+                con.execute(
+                    "ALTER TABLE attachments ADD COLUMN scope TEXT NOT NULL DEFAULT 'user'"
+                )
+            if not self._column_exists(con, "attachments", "owner_user_id"):
+                con.execute("ALTER TABLE attachments ADD COLUMN owner_user_id TEXT")
+            if not self._column_exists(con, "attachments", "caption"):
+                con.execute("ALTER TABLE attachments ADD COLUMN caption TEXT")
+            if not self._column_exists(con, "attachments", "ocr_text"):
+                con.execute("ALTER TABLE attachments ADD COLUMN ocr_text TEXT")
+
             con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_att_owner ON attachments(owner_user_id)"
             )
@@ -78,7 +96,6 @@ class HistoryStore:
             con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_att_created ON attachments(created_at)"
             )
-
             con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id)"
             )
@@ -245,7 +262,6 @@ class HistoryStore:
             ).fetchone()
             if not row:
                 return False
-
             con.execute(
                 "DELETE FROM messages WHERE conversation_id=? AND user_id=?",
                 (conversation_id, user_id),
@@ -269,6 +285,8 @@ class HistoryStore:
         filename: str,
         content_type: str | None,
         size_bytes: int,
+        caption: str | None = None,
+        ocr_text: str | None = None,
     ) -> str:
         async with self._lock:
             return await asyncio.to_thread(
@@ -280,6 +298,8 @@ class HistoryStore:
                 filename,
                 content_type,
                 size_bytes,
+                caption,
+                ocr_text,
             )
 
     def _record_attachment(
@@ -291,14 +311,16 @@ class HistoryStore:
         filename: str,
         content_type: str | None,
         size_bytes: int,
+        caption: str | None,
+        ocr_text: str | None,
     ) -> str:
         con = self._connect()
         try:
             att_id = str(uuid.uuid4())
             con.execute(
                 """
-                INSERT INTO attachments(id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, created_at)
-                VALUES(?,?,?,?,?,?,?,?,?)
+                INSERT INTO attachments(id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, caption, ocr_text, created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     att_id,
@@ -309,6 +331,8 @@ class HistoryStore:
                     filename,
                     content_type,
                     int(size_bytes),
+                    caption,
+                    ocr_text,
                     int(time.time()),
                 ),
             )
@@ -317,111 +341,71 @@ class HistoryStore:
         finally:
             con.close()
 
-    async def list_attachments(
+    async def list_attachments_for_user(
         self, user_id: str, limit: int = 200
     ) -> list[dict[str, Any]]:
         async with self._lock:
-            return await asyncio.to_thread(self._list_attachments, user_id, limit)
+            return await asyncio.to_thread(
+                self._list_attachments_for_user, user_id, limit
+            )
 
-    def _list_attachments(self, user_id: str, limit: int) -> list[dict[str, Any]]:
+    def _list_attachments_for_user(
+        self, user_id: str, limit: int
+    ) -> list[dict[str, Any]]:
         con = self._connect()
         try:
             rows = con.execute(
                 """
-                SELECT id, uri, path, filename, content_type, size_bytes, created_at
+                SELECT id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, caption, ocr_text, created_at
                 FROM attachments
-                WHERE user_id=?
+                WHERE scope='system' OR (scope='user' AND owner_user_id=?)
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
                 (user_id, int(limit)),
             ).fetchall()
-            return [
-                {
-                    "id": r["id"],
-                    "uri": r["uri"],
-                    "path": r["path"],
-                    "filename": r["filename"],
-                    "content_type": r["content_type"],
-                    "size_bytes": r["size_bytes"],
-                    "created_at": r["created_at"],
-                }
-                for r in rows
-            ]
+            return [dict(r) for r in rows]
         finally:
             con.close()
 
-    async def get_attachment(
-        self, user_id: str, attachment_id: str
-    ) -> dict[str, Any] | None:
+    async def get_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
         async with self._lock:
-            return await asyncio.to_thread(self._get_attachment, user_id, attachment_id)
+            return await asyncio.to_thread(self._get_attachment_any, attachment_id)
 
-    def _get_attachment(
-        self, user_id: str, attachment_id: str
-    ) -> dict[str, Any] | None:
+    def _get_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
         con = self._connect()
         try:
             r = con.execute(
                 """
-                SELECT id, uri, path, filename, content_type, size_bytes, created_at
+                SELECT id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, caption, ocr_text, created_at
                 FROM attachments
-                WHERE user_id=? AND id=?
+                WHERE id=?
                 """,
-                (user_id, attachment_id),
+                (attachment_id,),
             ).fetchone()
-            if not r:
-                return None
-            return {
-                "id": r["id"],
-                "uri": r["uri"],
-                "path": r["path"],
-                "filename": r["filename"],
-                "content_type": r["content_type"],
-                "size_bytes": r["size_bytes"],
-                "created_at": r["created_at"],
-            }
+            return dict(r) if r else None
         finally:
             con.close()
 
-    async def delete_attachment(
-        self, user_id: str, attachment_id: str
-    ) -> dict[str, Any] | None:
+    async def delete_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
         async with self._lock:
-            return await asyncio.to_thread(
-                self._delete_attachment, user_id, attachment_id
-            )
+            return await asyncio.to_thread(self._delete_attachment_any, attachment_id)
 
-    def _delete_attachment(
-        self, user_id: str, attachment_id: str
-    ) -> dict[str, Any] | None:
+    def _delete_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
         con = self._connect()
         try:
             row = con.execute(
                 """
-                SELECT id, uri, path, filename, content_type, size_bytes, created_at
+                SELECT id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, caption, ocr_text, created_at
                 FROM attachments
-                WHERE user_id=? AND id=?
+                WHERE id=?
                 """,
-                (user_id, attachment_id),
+                (attachment_id,),
             ).fetchone()
             if not row:
                 return None
-
-            con.execute(
-                "DELETE FROM attachments WHERE user_id=? AND id=?",
-                (user_id, attachment_id),
-            )
+            con.execute("DELETE FROM attachments WHERE id=?", (attachment_id,))
             con.commit()
-
-            return {
-                "id": row["id"],
-                "uri": row["uri"],
-                "path": row["path"],
-                "filename": row["filename"],
-                "content_type": row["content_type"],
-                "size_bytes": row["size_bytes"],
-                "created_at": row["created_at"],
-            }
+            return dict(row)
         finally:
             con.close()

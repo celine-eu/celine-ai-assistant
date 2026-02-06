@@ -28,38 +28,44 @@ export async function* chatStream(payload: {
   message: string;
   include_citations: boolean;
   top_k: number;
-  conversation_id: string | null;
-}): AsyncGenerator<ChatStreamEvent> {
+  conversation_id?: string | null;
+  attachment_ids?: string[];
+}) {
   const res = await fetch("/api/chat", {
     method: "POST",
-    credentials: "include",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      message: payload.message,
+      include_citations: payload.include_citations,
+      top_k: payload.top_k,
+      conversation_id: payload.conversation_id ?? null,
+      attachment_ids: payload.attachment_ids ?? [],
+    }),
   });
 
   if (!res.ok || !res.body) {
-    throw new Error(await res.text());
+    const txt = await res.text();
+    throw new Error(txt || `HTTP ${res.status}`);
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
 
+  let buf = "";
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    buf += decoder.decode(value, { stream: true });
 
-    buffer += decoder.decode(value, { stream: true });
-
-    let idx;
-    while ((idx = buffer.indexOf("\n\n")) !== -1) {
-      const chunk = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
 
       const line = chunk.split("\n").find((l) => l.startsWith("data: "));
       if (!line) continue;
-
-      yield JSON.parse(line.slice(6));
+      const jsonStr = line.slice("data: ".length);
+      yield JSON.parse(jsonStr);
     }
   }
 }

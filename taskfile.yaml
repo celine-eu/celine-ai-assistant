@@ -1,9 +1,15 @@
 version: "3"
 
 tasks:
-  run:
+  backend:
     desc: Run FastAPI backend with uv + uvicorn (reload)
     cmds:
       - uv run uvicorn celine.assistant.main:app --host 0.0.0.0 --port 8012 --reload
     env:
       PYTHONUNBUFFERED: "1"
+
+  frontend:
+    desc: Run frontend
+    dir: frontend
+    cmds:
+      - pnpm run dev
