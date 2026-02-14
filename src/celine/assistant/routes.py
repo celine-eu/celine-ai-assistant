@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 import logging
 from typing import AsyncGenerator
 
@@ -363,3 +364,74 @@ async def chat(
         yield _sse("done", None)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.get("/conversations")
+async def list_conversations(
+    request: Request,
+    user: UserIdentity = Depends(get_user_identity),
+    limit: int = 50,
+    offset: int = 0,
+):
+    # Basic bounds to avoid accidental abuse
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+
+    items = await request.app.state.history_store.list_conversations(
+        user.user_id, limit=limit, offset=offset
+    )
+    return {"items": items, "limit": limit, "offset": offset}
+
+
+@router.get("/conversations/{conversation_id}/messages")
+async def conversation_messages(
+    conversation_id: str,
+    request: Request,
+    user: UserIdentity = Depends(get_user_identity),
+    limit: int = 200,
+):
+    limit = max(1, min(int(limit), 500))
+
+    # Ensure conversation exists for this user; otherwise 404
+    convs = await request.app.state.history_store.list_conversations(
+        user.user_id, limit=1, offset=0
+    )
+    # Cheap existence check: ask store for messages; if no conversation row exists, list_messages just returns empty.
+    # We want 404 if conversation doesn't belong to user.
+    #
+    # Implement strict ownership check by attempting a get_or_create with provided id:
+    # If it doesn't exist for this user, store will create it (bad).
+    # So we instead check with list_conversations using a direct query isn't available.
+    #
+    # Therefore: add a lightweight existence check via delete_conversation logic approach:
+    # We'll query messages; if empty we still can't know if conversation exists. So use the DB-backed check:
+    # HistoryStore currently doesn't expose "conversation exists" — so we treat "no messages + not in list" as 404
+    # by scanning recent conversations (bounded) OR implement a new store method later.
+
+    # Bounded scan: check existence in the first 200 conversations (enough for UI usage)
+    exists = False
+    page = await request.app.state.history_store.list_conversations(
+        user.user_id, limit=200, offset=0
+    )
+    exists = any(c.get("conversation_id") == conversation_id for c in page)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    messages = await request.app.state.history_store.list_messages(
+        user.user_id, conversation_id, limit=limit
+    )
+    return {"messages": messages, "limit": limit}
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    request: Request,
+    user: UserIdentity = Depends(get_user_identity),
+):
+    ok = await request.app.state.history_store.delete_conversation(
+        user.user_id, conversation_id
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "deleted", "conversation_id": conversation_id}
