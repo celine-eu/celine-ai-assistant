@@ -44,7 +44,7 @@ services:
       context: ./
       dockerfile: Dockerfile
     env_file:
-      - ./.env.example
+      - .env
     volumes:
       - api_data:/data
       # optional: mount local docs for quick testing (set DOCS_URI=file:///docs)
@@ -53,6 +53,9 @@ services:
       - "8012:8012"
     depends_on:
       - qdrant
+    extra_hosts:
+      - "keycloak.celine.localhost:172.17.0.1"
+      - "api.celine.localhost:172.17.0.1"
 
 volumes:
   qdrant_data:
