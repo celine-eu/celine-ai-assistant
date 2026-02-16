@@ -61,3 +61,5 @@ def create_app():
             return json_error(500, "Internal Server Error")
 
     app.include_router(router)
+
+    return app
