@@ -35,30 +35,29 @@ async def lifespan(app: FastAPI):
         log.info("app stopped")
 
 
-app = FastAPI(
-    title="CELINE Chatbot API",
-    version="0.2.0",
-    lifespan=lifespan,
-)
+def create_app():
+    app = FastAPI(
+        title="CELINE Chatbot API",
+        version="0.2.0",
+        lifespan=lifespan,
+    )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if settings.app_env != "prod" else [],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"] if settings.app_env != "prod" else [],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
+    @app.middleware("http")
+    async def error_boundary(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except AuthError as e:
+            return json_error(401, str(e))
+        except Exception:
+            log.exception("unhandled_error")
+            return json_error(500, "Internal Server Error")
 
-@app.middleware("http")
-async def error_boundary(request: Request, call_next):
-    try:
-        return await call_next(request)
-    except AuthError as e:
-        return json_error(401, str(e))
-    except Exception:
-        log.exception("unhandled_error")
-        return json_error(500, "Internal Server Error")
-
-
-app.include_router(router)
+    app.include_router(router)

@@ -1,18 +1,31 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_SYSTEM_PYTHON=1
 
 WORKDIR /app
 
-COPY pyproject.toml /app/pyproject.toml
+# Install OS deps (build tools not strictly required for this set, keep lean)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN python - <<'PY'
-import tomllib, subprocess, sys
-deps = tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']
-subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", *deps])
-PY
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH=".venv/bin:/root/.local/bin:${PATH}"
 
-COPY app /app/app
+# Copy dependency manifests first for better caching
+COPY pyproject.toml uv.lock README.md ./
 
-ENV PYTHONUNBUFFERED=1
+# Copy application code
+COPY ./src ./src
+
+# Install deps (no dev deps declared; adjust if you add optional groups)
+RUN uv sync --no-editable
+
+
+
 EXPOSE 8012
-
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8012"]
+CMD [ ".venv/bin/uvicorn","celine.assistant.main:create_app","--host","0.0.0.0","--port","8012" ]
