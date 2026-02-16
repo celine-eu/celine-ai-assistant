@@ -2,7 +2,7 @@
 name = "celine-chatbot-api"
 version = "0.3.1"
 description = "FastAPI RAG chatbot using LlamaIndex + Qdrant + OpenAI"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.30.0",
@@ -18,7 +18,8 @@ dependencies = [
   "python-jose[cryptography]>=3.3.0",
   "fsspec>=2024.6.0",
   "s3fs>=2024.6.0",
-  "python-multipart>=0.0.9"
+  "python-multipart>=0.0.9",
+  "celine-sdk>=1.0.1",
 ]
 
 [dependency-groups]

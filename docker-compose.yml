@@ -50,20 +50,9 @@ services:
       # optional: mount local docs for quick testing (set DOCS_URI=file:///docs)
       - ./data/local_docs:/docs:ro
     ports:
-      - "8000:8000"
+      - "8012:8012"
     depends_on:
       - qdrant
-
-  ui:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    environment:
-      - API_BASE_URL=http://api:8000
-    ports:
-      - "5173:5173"
-    depends_on:
-      - api
 
 volumes:
   qdrant_data:
