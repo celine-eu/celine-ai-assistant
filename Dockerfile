@@ -25,6 +25,8 @@ COPY ./src ./src
 # Install deps (no dev deps declared; adjust if you add optional groups)
 RUN uv sync --no-editable
 
+COPY ./alembic ./alembic
+COPY ./alembic.ini ./alembic.ini
 
 
 EXPOSE 8012
