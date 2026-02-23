@@ -314,15 +314,15 @@ dev = [
 
 [[package]]
 name = "celine-regorus"
-version = "0.9.1.post20260210043442"
+version = "0.9.1.post20260219102243"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/40/b9/829c73421787125033ba6731754b068b41af3f16a482dc4398ee7fc1b654/celine_regorus-0.9.1.post20260210043442-cp310-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:36a010c27ec6ba3f32c573774d4bd3868c93533988a35b458ffde032a4939dc3", size = 3622300, upload-time = "2026-02-10T04:37:11.886Z" },
+    { url = "https://files.pythonhosted.org/packages/21/4e/37886a24d449bfa6851c6a474205c710cf55faa4ad035ed7b386ddfd8d45/celine_regorus-0.9.1.post20260219102243-cp310-abi3-manylinux_2_34_x86_64.whl", hash = "sha256:b139a8bb415de65b89fb94510bc9e784153f7fc7a71bf8f5d315e03b05d36118", size = 3643083, upload-time = "2026-02-19T10:25:34.695Z" },
 ]
 
 [[package]]
 name = "celine-sdk"
-version = "1.1.0"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiomqtt" },
@@ -334,11 +334,12 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
+    { name = "python-dateutil" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/82/8596615432a8ed728f4c74019a79e836094a2d131382c279588df7acbcbf/celine_sdk-1.1.0.tar.gz", hash = "sha256:b1d0f4bd9cc79e7c58b8447a798cbf8aa003b976d4566b2ef0e0b29145e4a382", size = 123625, upload-time = "2026-02-16T12:06:19.507Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/b0/b2a6422264c8fe07bed03ab6fe7557198adfa9db49dd189a63419ec51058/celine_sdk-1.3.0.tar.gz", hash = "sha256:7e6bbddf788bf619b7c7bff4a5a28c9f62a844603ba8ac866a08961f965f1643", size = 144356, upload-time = "2026-02-23T07:21:20.999Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/c6/05ace578aa7836499695ce6598963b2e468e1204c1b78add767c3e8723ae/celine_sdk-1.1.0-py3-none-any.whl", hash = "sha256:3cca56846a5f2dfe2460530352fe1d05955d8251ac63af45746f187377ad2afc", size = 332791, upload-time = "2026-02-16T12:06:18.107Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/65/4163845ce23c10b7b8470c48a305c1fcb99095c9b73c8dc481d4a22f098f/celine_sdk-1.3.0-py3-none-any.whl", hash = "sha256:e7c4c00b923091b1789345e8389005bc37672c97d9ba037717b5a7afbbffd417", size = 378982, upload-time = "2026-02-23T07:21:19.637Z" },
 ]
 
 [[package]]
