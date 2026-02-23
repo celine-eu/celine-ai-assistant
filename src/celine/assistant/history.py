@@ -1,279 +1,192 @@
+"""Chat history persistence backed by SQLAlchemy (async).
+
+Drop-in replacement for the old sqlite3-based HistoryStore.
+The public async API is identical so no routes need to change.
+"""
+
 from __future__ import annotations
 
-import asyncio
 import logging
-import sqlite3
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Any
+
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from .db import AsyncSessionLocal, Attachment, Conversation, Message
 
 log = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class Conversation:
-    conversation_id: str
-
-
 class HistoryStore:
-    def __init__(self, path: str):
-        self.path = path
-        self._lock = asyncio.Lock()
-        self._init_db()
+    """Async history store built on SQLAlchemy.
 
-    def _connect(self) -> sqlite3.Connection:
-        con = sqlite3.connect(self.path, check_same_thread=False)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL;")
-        con.execute("PRAGMA synchronous=NORMAL;")
-        con.execute("PRAGMA foreign_keys=ON;")
-        return con
+    Instantiate once at application startup (no path argument needed;
+    the engine is configured centrally in db/engine.py)::
 
-    def _column_exists(self, con: sqlite3.Connection, table: str, column: str) -> bool:
-        rows = con.execute(f"PRAGMA table_info({table})").fetchall()
-        return any(r["name"] == column for r in rows)
+        store = HistoryStore()
 
-    def _init_db(self) -> None:
-        con = self._connect()
-        try:
-            con.execute(
-                """
-                CREATE TABLE IF NOT EXISTS conversations(
-                    conversation_id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
-                )
-                """
-            )
-            con.execute(
-                """
-                CREATE TABLE IF NOT EXISTS messages(
-                    id TEXT PRIMARY KEY,
-                    conversation_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
-                )
-                """
-            )
-            con.execute(
-                """
-                CREATE TABLE IF NOT EXISTS attachments(
-                    id TEXT PRIMARY KEY,
-                    scope TEXT NOT NULL,                 -- 'user' | 'system'
-                    owner_user_id TEXT,                  -- NULL for system, user_id for user scope
-                    uri TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    filename TEXT NOT NULL,
-                    content_type TEXT,
-                    size_bytes INTEGER NOT NULL,
-                    caption TEXT,                        -- vision caption/description
-                    ocr_text TEXT,                       -- optional extracted text
-                    created_at INTEGER NOT NULL
-                )
-                """
-            )
+    All public methods are async and safe for concurrent use — SQLAlchemy's
+    async session handles connection pooling internally.
+    """
 
-            if not self._column_exists(con, "attachments", "scope"):
-                con.execute(
-                    "ALTER TABLE attachments ADD COLUMN scope TEXT NOT NULL DEFAULT 'user'"
-                )
-            if not self._column_exists(con, "attachments", "owner_user_id"):
-                con.execute("ALTER TABLE attachments ADD COLUMN owner_user_id TEXT")
-            if not self._column_exists(con, "attachments", "caption"):
-                con.execute("ALTER TABLE attachments ADD COLUMN caption TEXT")
-            if not self._column_exists(con, "attachments", "ocr_text"):
-                con.execute("ALTER TABLE attachments ADD COLUMN ocr_text TEXT")
-
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_att_owner ON attachments(owner_user_id)"
-            )
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_att_scope ON attachments(scope)"
-            )
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_att_created ON attachments(created_at)"
-            )
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id)"
-            )
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id)"
-            )
-            con.execute("CREATE INDEX IF NOT EXISTS idx_msg_user ON messages(user_id)")
-
-            con.commit()
-        finally:
-            con.close()
+    # ------------------------------------------------------------------
+    # Conversations
+    # ------------------------------------------------------------------
 
     async def get_or_create_conversation(
-        self, user_id: str, conversation_id: str | None
+        self,
+        user_id: str,
+        conversation_id: str | None = None,
     ) -> Conversation:
-        async with self._lock:
-            return await asyncio.to_thread(
-                self._get_or_create, user_id, conversation_id
-            )
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                if conversation_id:
+                    result = await session.execute(
+                        select(Conversation).where(
+                            Conversation.conversation_id == conversation_id,
+                            Conversation.user_id == user_id,
+                        )
+                    )
+                    conv = result.scalar_one_or_none()
+                    if conv:
+                        return conv
 
-    def _get_or_create(self, user_id: str, conversation_id: str | None) -> Conversation:
-        con = self._connect()
-        try:
-            if conversation_id:
-                row = con.execute(
-                    "SELECT conversation_id FROM conversations WHERE conversation_id=? AND user_id=?",
-                    (conversation_id, user_id),
-                ).fetchone()
-                if row:
-                    return Conversation(conversation_id=conversation_id)
-
-            cid = conversation_id or str(uuid.uuid4())
-            con.execute(
-                "INSERT OR IGNORE INTO conversations(conversation_id, user_id, created_at) VALUES(?,?,?)",
-                (cid, user_id, int(time.time())),
-            )
-            con.commit()
-            return Conversation(conversation_id=cid)
-        finally:
-            con.close()
-
-    async def append_message(
-        self, user_id: str, conversation_id: str, role: str, content: str
-    ) -> None:
-        async with self._lock:
-            await asyncio.to_thread(
-                self._append, user_id, conversation_id, role, content
-            )
-
-    def _append(
-        self, user_id: str, conversation_id: str, role: str, content: str
-    ) -> None:
-        con = self._connect()
-        try:
-            con.execute(
-                "INSERT INTO messages(id, conversation_id, user_id, role, content, created_at) VALUES(?,?,?,?,?,?)",
-                (
-                    str(uuid.uuid4()),
-                    conversation_id,
-                    user_id,
-                    role,
-                    content,
-                    int(time.time()),
-                ),
-            )
-            con.commit()
-        finally:
-            con.close()
-
-    async def list_messages(
-        self, user_id: str, conversation_id: str, limit: int = 50
-    ) -> list[dict[str, Any]]:
-        async with self._lock:
-            return await asyncio.to_thread(
-                self._list_messages, user_id, conversation_id, limit
-            )
-
-    def _list_messages(
-        self, user_id: str, conversation_id: str, limit: int
-    ) -> list[dict[str, Any]]:
-        con = self._connect()
-        try:
-            rows = con.execute(
-                """
-                SELECT role, content, created_at
-                FROM messages
-                WHERE user_id=? AND conversation_id=?
-                ORDER BY created_at ASC
-                LIMIT ?
-                """,
-                (user_id, conversation_id, int(limit)),
-            ).fetchall()
-            return [
-                {
-                    "role": r["role"],
-                    "content": r["content"],
-                    "created_at": r["created_at"],
-                }
-                for r in rows
-            ]
-        finally:
-            con.close()
+                conv = Conversation(
+                    conversation_id=conversation_id or str(uuid.uuid4()),
+                    user_id=user_id,
+                    created_at=int(time.time()),
+                )
+                session.add(conv)
+            return conv
 
     async def list_conversations(
-        self, user_id: str, limit: int = 50, offset: int = 0
+        self,
+        user_id: str,
+        limit: int = 50,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
-        async with self._lock:
-            return await asyncio.to_thread(
-                self._list_conversations, user_id, limit, offset
+        async with AsyncSessionLocal() as session:
+            # last_message_at subquery
+            last_msg_at = (
+                select(func.max(Message.created_at))
+                .where(Message.conversation_id == Conversation.conversation_id)
+                .correlate(Conversation)
+                .scalar_subquery()
+            )
+            msg_count = (
+                select(func.count(Message.id))
+                .where(Message.conversation_id == Conversation.conversation_id)
+                .correlate(Conversation)
+                .scalar_subquery()
+            )
+            # last_snippet: grab the most recent message content (first 120 chars)
+            last_snippet_sq = (
+                select(Message.content)
+                .where(Message.conversation_id == Conversation.conversation_id)
+                .correlate(Conversation)
+                .order_by(Message.created_at.desc())
+                .limit(1)
+                .scalar_subquery()
             )
 
-    def _list_conversations(
-        self, user_id: str, limit: int, offset: int
-    ) -> list[dict[str, Any]]:
-        con = self._connect()
-        try:
-            rows = con.execute(
-                """
-                SELECT
-                    c.conversation_id,
-                    c.created_at,
-                    COALESCE(
-                        (SELECT MAX(m.created_at) FROM messages m
-                         WHERE m.user_id=c.user_id AND m.conversation_id=c.conversation_id),
-                        c.created_at
-                    ) AS last_message_at,
-                    (SELECT COUNT(1) FROM messages m
-                     WHERE m.user_id=c.user_id AND m.conversation_id=c.conversation_id) AS message_count,
-                    (SELECT SUBSTR(m.content, 1, 140) FROM messages m
-                     WHERE m.user_id=c.user_id AND m.conversation_id=c.conversation_id
-                     ORDER BY m.created_at DESC LIMIT 1) AS last_snippet
-                FROM conversations c
-                WHERE c.user_id=?
-                ORDER BY last_message_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (user_id, int(limit), int(offset)),
-            ).fetchall()
+            stmt = (
+                select(
+                    Conversation.conversation_id,
+                    Conversation.created_at,
+                    last_msg_at.label("last_message_at"),
+                    msg_count.label("message_count"),
+                    last_snippet_sq.label("last_snippet"),
+                )
+                .where(Conversation.user_id == user_id)
+                .order_by(last_msg_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+
+            rows = (await session.execute(stmt)).all()
             return [
                 {
-                    "conversation_id": r["conversation_id"],
-                    "created_at": r["created_at"],
-                    "last_message_at": r["last_message_at"],
-                    "message_count": r["message_count"],
-                    "last_snippet": r["last_snippet"],
+                    "conversation_id": r.conversation_id,
+                    "created_at": r.created_at,
+                    "last_message_at": r.last_message_at,
+                    "message_count": r.message_count,
+                    "last_snippet": (r.last_snippet or "")[:120],
                 }
                 for r in rows
             ]
-        finally:
-            con.close()
 
     async def delete_conversation(self, user_id: str, conversation_id: str) -> bool:
-        async with self._lock:
-            return await asyncio.to_thread(
-                self._delete_conversation, user_id, conversation_id
-            )
-
-    def _delete_conversation(self, user_id: str, conversation_id: str) -> bool:
-        con = self._connect()
-        try:
-            row = con.execute(
-                "SELECT 1 FROM conversations WHERE conversation_id=? AND user_id=?",
-                (conversation_id, user_id),
-            ).fetchone()
-            if not row:
-                return False
-            con.execute(
-                "DELETE FROM messages WHERE conversation_id=? AND user_id=?",
-                (conversation_id, user_id),
-            )
-            con.execute(
-                "DELETE FROM conversations WHERE conversation_id=? AND user_id=?",
-                (conversation_id, user_id),
-            )
-            con.commit()
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(Conversation).where(
+                        Conversation.conversation_id == conversation_id,
+                        Conversation.user_id == user_id,
+                    )
+                )
+                conv = result.scalar_one_or_none()
+                if not conv:
+                    return False
+                await session.delete(conv)
             return True
-        finally:
-            con.close()
+
+    # ------------------------------------------------------------------
+    # Messages
+    # ------------------------------------------------------------------
+
+    async def append_message(
+        self,
+        user_id: str,
+        conversation_id: str,
+        role: str,
+        content: str,
+    ) -> str:
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                msg = Message(
+                    id=str(uuid.uuid4()),
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    role=role,
+                    content=content,
+                    created_at=int(time.time()),
+                )
+                session.add(msg)
+            return msg.id
+
+    async def list_messages(
+        self,
+        user_id: str,
+        conversation_id: str,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        async with AsyncSessionLocal() as session:
+            stmt = (
+                select(Message)
+                .where(
+                    Message.conversation_id == conversation_id,
+                    Message.user_id == user_id,
+                )
+                .order_by(Message.created_at.asc())
+                .limit(limit)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [
+                {
+                    "id": m.id,
+                    "conversation_id": m.conversation_id,
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": m.created_at,
+                }
+                for m in rows
+            ]
+
+    # ------------------------------------------------------------------
+    # Attachments
+    # ------------------------------------------------------------------
 
     async def record_attachment(
         self,
@@ -288,124 +201,76 @@ class HistoryStore:
         caption: str | None = None,
         ocr_text: str | None = None,
     ) -> str:
-        async with self._lock:
-            return await asyncio.to_thread(
-                self._record_attachment,
-                scope,
-                owner_user_id,
-                uri,
-                path,
-                filename,
-                content_type,
-                size_bytes,
-                caption,
-                ocr_text,
-            )
-
-    def _record_attachment(
-        self,
-        scope: str,
-        owner_user_id: str | None,
-        uri: str,
-        path: str,
-        filename: str,
-        content_type: str | None,
-        size_bytes: int,
-        caption: str | None,
-        ocr_text: str | None,
-    ) -> str:
-        con = self._connect()
-        try:
-            att_id = str(uuid.uuid4())
-            con.execute(
-                """
-                INSERT INTO attachments(id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, caption, ocr_text, created_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    att_id,
-                    scope,
-                    owner_user_id,
-                    uri,
-                    path,
-                    filename,
-                    content_type,
-                    int(size_bytes),
-                    caption,
-                    ocr_text,
-                    int(time.time()),
-                ),
-            )
-            con.commit()
-            return att_id
-        finally:
-            con.close()
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                att = Attachment(
+                    id=str(uuid.uuid4()),
+                    scope=scope,
+                    owner_user_id=owner_user_id,
+                    uri=uri,
+                    path=path,
+                    filename=filename,
+                    content_type=content_type,
+                    size_bytes=size_bytes,
+                    caption=caption,
+                    ocr_text=ocr_text,
+                    created_at=int(time.time()),
+                )
+                session.add(att)
+            return att.id
 
     async def list_attachments_for_user(
         self, user_id: str, limit: int = 200
     ) -> list[dict[str, Any]]:
-        async with self._lock:
-            return await asyncio.to_thread(
-                self._list_attachments_for_user, user_id, limit
+        async with AsyncSessionLocal() as session:
+            stmt = (
+                select(Attachment)
+                .where(
+                    (Attachment.scope == "system")
+                    | (
+                        (Attachment.scope == "user")
+                        & (Attachment.owner_user_id == user_id)
+                    )
+                )
+                .order_by(Attachment.created_at.desc())
+                .limit(limit)
             )
-
-    def _list_attachments_for_user(
-        self, user_id: str, limit: int
-    ) -> list[dict[str, Any]]:
-        con = self._connect()
-        try:
-            rows = con.execute(
-                """
-                SELECT id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, caption, ocr_text, created_at
-                FROM attachments
-                WHERE scope='system' OR (scope='user' AND owner_user_id=?)
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (user_id, int(limit)),
-            ).fetchall()
-            return [dict(r) for r in rows]
-        finally:
-            con.close()
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_att_dict(a) for a in rows]
 
     async def get_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
-        async with self._lock:
-            return await asyncio.to_thread(self._get_attachment_any, attachment_id)
-
-    def _get_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
-        con = self._connect()
-        try:
-            r = con.execute(
-                """
-                SELECT id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, caption, ocr_text, created_at
-                FROM attachments
-                WHERE id=?
-                """,
-                (attachment_id,),
-            ).fetchone()
-            return dict(r) if r else None
-        finally:
-            con.close()
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Attachment).where(Attachment.id == attachment_id)
+            )
+            att = result.scalar_one_or_none()
+            return _att_dict(att) if att else None
 
     async def delete_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
-        async with self._lock:
-            return await asyncio.to_thread(self._delete_attachment_any, attachment_id)
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(Attachment).where(Attachment.id == attachment_id)
+                )
+                att = result.scalar_one_or_none()
+                if not att:
+                    return None
+                data = _att_dict(att)
+                await session.delete(att)
+            return data
 
-    def _delete_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
-        con = self._connect()
-        try:
-            row = con.execute(
-                """
-                SELECT id, scope, owner_user_id, uri, path, filename, content_type, size_bytes, caption, ocr_text, created_at
-                FROM attachments
-                WHERE id=?
-                """,
-                (attachment_id,),
-            ).fetchone()
-            if not row:
-                return None
-            con.execute("DELETE FROM attachments WHERE id=?", (attachment_id,))
-            con.commit()
-            return dict(row)
-        finally:
-            con.close()
+
+def _att_dict(att: Attachment) -> dict[str, Any]:
+    return {
+        "id": att.id,
+        "scope": att.scope,
+        "owner_user_id": att.owner_user_id,
+        "uri": att.uri,
+        "path": att.path,
+        "filename": att.filename,
+        "content_type": att.content_type,
+        "size_bytes": att.size_bytes,
+        "caption": att.caption,
+        "ocr_text": att.ocr_text,
+        "created_at": att.created_at,
+    }

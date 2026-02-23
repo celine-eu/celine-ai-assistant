@@ -39,6 +39,10 @@ services:
       "
     restart: "no"
 
+  api-init:
+    build: .
+    command: .venv/bin/alembic upgrade head
+
   api:
     build:
       context: ./
@@ -52,7 +56,10 @@ services:
     ports:
       - "8012:8012"
     depends_on:
-      - qdrant
+      api-init:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_started
     extra_hosts:
       - "keycloak.celine.localhost:172.17.0.1"
       - "api.celine.localhost:172.17.0.1"

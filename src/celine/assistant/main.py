@@ -26,7 +26,7 @@ def json_error(status_code: int, detail: str):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_collection()
-    app.state.history_store = HistoryStore(settings.chat_db_path)
+    app.state.history_store = HistoryStore()
 
     log.info("app started")
     try:

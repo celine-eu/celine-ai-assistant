@@ -46,9 +46,15 @@ class Settings(BaseSettings):
     )
     manifest_path: str = Field(default="./data/manifest.json", alias="MANIFEST_PATH")
 
-    chat_db_path: str = Field(
-        default="./data/chat_history.sqlite3", alias="CHAT_DB_PATH"
+    database_url: str = Field(
+        default="postgresql+asyncpg://postgres:securepassword123@172.17.0.1:15432/ai_assistant",
+        description="postgresql+asyncpg://user:pass@host:5432/dbname",
+        alias="DATABASE_URL",
     )
+    db_pool_size: int = Field(default=10, alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=20, alias="DB_MAX_OVERFLOW")
+    db_pool_timeout: int = Field(default=30, alias="DB_POOL_TIMEOUT")
+    db_pool_recycle: int = Field(default=1800, alias="DB_POOL_RECYCLE")
 
     oauth2_trust_headers: bool = Field(default=True, alias="OAUTH2_TRUST_HEADERS")
     oauth2_jwks_url: str | None = Field(default=None, alias="OAUTH2_JWKS_URL")
