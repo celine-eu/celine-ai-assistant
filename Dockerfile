@@ -18,13 +18,12 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # Copy manifests first — better layer caching
 COPY pyproject.toml uv.lock README.md ./
+COPY ./src ./src
 
 # Install production deps into an isolated venv
-RUN uv venv .venv \
-    && uv sync --no-editable --no-dev
+RUN uv venv .venv && uv sync --no-editable --no-dev
 
 # Copy application source
-COPY ./src ./src
 COPY ./alembic ./alembic
 COPY ./alembic.ini ./alembic.ini
 
