@@ -6,3 +6,5 @@ __pycache__
 # Dumpster output
 .dumpster
 *.egg-info
+
+skaffold
