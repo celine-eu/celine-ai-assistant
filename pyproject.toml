@@ -19,7 +19,7 @@ dependencies = [
   "fsspec>=2024.6.0",
   "s3fs>=2024.6.0",
   "python-multipart>=0.0.9",
-  "celine-sdk>=1.1.0",
+  "celine-sdk>=1.4.0",
   "alembic>=1.18.4",
   "sqlalchemy[asyncio]>=2.0.46",
   "asyncpg>=0.31.0",
@@ -28,7 +28,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "debugpy>=1.8.20",
-  "dumpster-cli>=1.4.0",
+  "python-semantic-release>=10.5.3",
 ]
 
 [tool.uv]

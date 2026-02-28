@@ -28,3 +28,9 @@ tasks:
     desc: "Reset DB schema"
     cmds:
       - uv run alembic downgrade base
+
+  release:
+    cmds:
+      - uv run semantic-release -v version --no-vcs-release
+      - git push
+      - git push --tags
