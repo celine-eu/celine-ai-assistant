@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.3 (2026-03-03)
+
+### Bug Fixes
+
+- Handle 401 errors
+  ([`05e3777`](https://github.com/celine-eu/celine-ai-assistant/commit/05e37778d15e29eaa8bc28fac9eb8196ecbe631a))
+
+
 ## v1.0.2 (2026-03-02)
 
 ### Bug Fixes
