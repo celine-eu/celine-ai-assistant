@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from fastapi import Request
+from fastapi import HTTPException, Request
 from jose import jwt
 from pydantic import BaseModel, Field
 
@@ -235,10 +235,11 @@ async def get_user_identity(request: Request) -> UserIdentity:
             hdr_user = _trusted_identity_from_headers(request)
             if hdr_user:
                 return hdr_user
-            raise AuthError(f"JWT verification failed: {e}") from e
+            log.warning("jwt_verification_failed: %s", e)
+            raise HTTPException(status_code=401, detail=f"JWT verification failed: {e}") from e
 
     hdr_user = _trusted_identity_from_headers(request)
     if hdr_user:
         return hdr_user
 
-    raise AuthError("No user identity found (missing headers/JWT)")
+    raise HTTPException(status_code=401, detail="No user identity found (missing headers/JWT)")
