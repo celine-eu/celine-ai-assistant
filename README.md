@@ -42,10 +42,10 @@ curl -X POST http://localhost:8000/chat \
 
 | Document | Description |
 |---|---|
-| [Architecture](https://celine-eu.github.io/projects/celine-ai-assistant/docs/architecture.md) | RAG pipeline, component overview, service dependencies |
-| [Configuration](https://celine-eu.github.io/projects/celine-ai-assistant/docs/configuration.md) | All environment variables with types and defaults |
-| [API Reference](https://celine-eu.github.io/projects/celine-ai-assistant/docs/api-reference.md) | All endpoints: chat, upload, attachments, conversations, admin |
-| [Development](https://celine-eu.github.io/projects/celine-ai-assistant/docs/development.md) | Local setup, migrations, running tests |
+| [Architecture](https://celine-eu.github.io/projects/celine-ai-assistant/docs/architecture) | RAG pipeline, component overview, service dependencies |
+| [Configuration](https://celine-eu.github.io/projects/celine-ai-assistant/docs/configuration) | All environment variables with types and defaults |
+| [API Reference](https://celine-eu.github.io/projects/celine-ai-assistant/docs/api-reference) | All endpoints: chat, upload, attachments, conversations, admin |
+| [Development](https://celine-eu.github.io/projects/celine-ai-assistant/docs/development) | Local setup, migrations, running tests |
 
 ## License
 
