@@ -42,6 +42,10 @@ services:
   api-init:
     build: .
     command: .venv/bin/alembic upgrade head
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   api:
     build:
@@ -61,8 +65,9 @@ services:
       qdrant:
         condition: service_started
     extra_hosts:
-      - "keycloak.celine.localhost:172.17.0.1"
-      - "api.celine.localhost:172.17.0.1"
+      - "host.docker.internal:host-gateway"
+      - "keycloak.celine.localhost:host-gateway"
+      - "api.celine.localhost:host-gateway"
 
 volumes:
   qdrant_data:

@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     )
     openai_vision_model: str = Field(default="gpt-4o-mini", alias="OPENAI_VISION_MODEL")
 
-    qdrant_url: str = Field(default="http://172.17.0.1:6333", alias="QDRANT_URL")
+    qdrant_url: str = Field(
+        default="http://host.docker.internal:6333", alias="QDRANT_URL"
+    )
     qdrant_api_key: str | None = Field(default="", alias="QDRANT_API_KEY")
     qdrant_collection: str = Field(default="celine_docs", alias="QDRANT_COLLECTION")
 
@@ -29,7 +31,7 @@ class Settings(BaseSettings):
     )
 
     s3_endpoint_url: str | None = Field(
-        default="http://172.17.0.1:9000", alias="S3_ENDPOINT_URL"
+        default="http://host.docker.internal:9000", alias="S3_ENDPOINT_URL"
     )
     s3_access_key_id: str | None = Field(default="minioadmin", alias="S3_ACCESS_KEY_ID")
     s3_secret_access_key: str | None = Field(
@@ -47,7 +49,7 @@ class Settings(BaseSettings):
     manifest_path: str = Field(default="./data/manifest.json", alias="MANIFEST_PATH")
 
     database_url: str = Field(
-        default="postgresql+asyncpg://postgres:securepassword123@172.17.0.1:15432/ai_assistant",
+        default="postgresql+asyncpg://postgres:securepassword123@host.docker.internal:15432/ai_assistant",
         description="postgresql+asyncpg://user:pass@host:5432/dbname",
         alias="DATABASE_URL",
     )
