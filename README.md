@@ -1,4 +1,4 @@
-# celine-ai-assistant
+# AI Assistant
 
 FastAPI-based RAG (Retrieval-Augmented Generation) chatbot for the CELINE platform, using LlamaIndex, Qdrant, and OpenAI. Provides streaming chat, conversation history, file-based RAG ingestion, and JWT authentication.
 
