@@ -24,6 +24,15 @@ The assistant processes user queries through a Retrieval-Augmented Generation pi
 | Qdrant setup | `qdrant_setup.py` | Collection initialization and management |
 | Settings | `settings.py` | Pydantic-settings environment configuration |
 
+## Frontend
+
+This repository is a pure API backend. The chat UI is maintained separately in [celine-frontend](https://github.com/celine-eu/celine-frontend):
+
+- `packages/assistant-ui` — `@celine-eu/assistant-ui` Svelte component library (ChatCore, AssistantWidget, etc.)
+- `apps/assistant` — standalone full-page assistant app
+
+The frontend communicates with this API at `apiBaseUrl`. When deployed inside the participant webapp, requests are proxied through the `celine-webapp` BFF.
+
 ## Service Dependencies
 
 | Service | Purpose |
