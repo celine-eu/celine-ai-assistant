@@ -11,8 +11,8 @@ from .history import HistoryStore
 from .logging_ import configure_logging
 from .qdrant_setup import ensure_collection
 from .routes import router
-from .site_docs import sync_site_docs
 from .settings import settings
+from .training_materials import startup_sync_training_materials
 
 configure_logging(settings.log_level)
 log = logging.getLogger(__name__)
@@ -31,14 +31,12 @@ async def lifespan(app: FastAPI):
 
     if settings.ingest_enable:
         try:
-            result = await sync_site_docs(
-                force_full=settings.ingest_force_reload_on_start
-            )
-            log.info("site_docs_synced", extra=result)
+            result = await startup_sync_training_materials()
+            log.info("training_materials_synced", extra=result)
         except Exception:
             log.exception(
-                "site_docs_sync_failed",
-                extra={"root": "/workspace/repositories/celine-training-materials"},
+                "training_materials_sync_failed",
+                extra={"root": settings.training_materials_path},
             )
 
     log.info("app started")

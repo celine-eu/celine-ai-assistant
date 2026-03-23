@@ -4,14 +4,15 @@ import asyncio
 import os
 from typing import Any, Dict, List, Optional, cast
 
-from llama_index.core import Document, Settings, VectorStoreIndex
+from llama_index.core import Document, Settings, StorageContext, VectorStoreIndex
 from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import BaseNode
 from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
 
 from celine.assistant.settings import settings
-from llama_index.core import Document, VectorStoreIndex
 
 _index_lock = asyncio.Lock()
 _index: Optional[VectorStoreIndex] = None
@@ -27,8 +28,18 @@ def _get_index() -> VectorStoreIndex:
         os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
 
         Settings.embed_model = OpenAIEmbedding(model=settings.openai_embed_model)
-
-        _index = VectorStoreIndex.from_documents([])
+        client = QdrantClient(
+            url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=30
+        )
+        vector_store = QdrantVectorStore(
+            client=client,
+            collection_name=settings.qdrant_collection,
+        )
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+        _index = VectorStoreIndex.from_vector_store(
+            vector_store=vector_store,
+            storage_context=storage_context,
+        )
 
     return _index
 

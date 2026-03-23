@@ -34,5 +34,5 @@ class HealthResponse(BaseModel):
 
 class TrainingMaterialsSyncRequest(BaseModel):
     target_ref: str | None = Field(
-        default=None, description="Git commit SHA or ref to sync in training materials"
+        default=None, description="Git commit SHA, tag, or ref to sync"
     )

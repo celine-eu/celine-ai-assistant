@@ -9,6 +9,7 @@ The chat UI is part of [celine-frontend](https://github.com/celine-eu/celine-fro
 - Streaming chat via Server-Sent Events (SSE)
 - Conversation history persisted in PostgreSQL
 - File upload with automatic RAG ingestion into Qdrant
+- Automatic sync of `celine-training-materials` from a Git repository
 - JWT authentication (JWKS-based verification)
 - Vision support for image attachments
 - Admin endpoints for re-indexing and reloading
@@ -38,6 +39,19 @@ curl -X POST http://localhost:8000/chat \
 | `JWKS_URL` | JWKS endpoint for JWT verification | required |
 | `OPENAI_MODEL` | Chat model | `gpt-4o` |
 | `EMBED_MODEL` | Embedding model | `text-embedding-3-small` |
+| `TRAINING_MATERIALS_PATH` | Local checkout path for training materials | `/app/training-materials` in container deployments |
+| `TRAINING_MATERIALS_REPO_URL` | Git URL used by the API container to clone/pull training materials | empty |
+| `TRAINING_MATERIALS_REF` | Ref checked out before ingest | `origin/main` |
+
+## Training Materials Sync
+
+The API can manage the `celine-training-materials` repository directly inside the container.
+
+- If `TRAINING_MATERIALS_REPO_URL` is set, the container clones the repo into `TRAINING_MATERIALS_PATH` if missing.
+- On startup, it fetches `origin`, checks out `TRAINING_MATERIALS_REF`, and ingests Markdown files.
+- Admins can force a new sync through `POST /admin/training-materials/sync`.
+
+For Kubernetes, prefer an authenticated HTTPS URL, for example via a token-backed secret injected into `TRAINING_MATERIALS_REPO_URL`.
 
 The assistant preloads internal knowledge from the local checkout of `celine-training-materials`, mounted in the container via the parent workspace at `/workspace/repositories/celine-training-materials`. It indexes all Markdown files found there. This is intended for docs that should influence answers without being shown as visible sources in the chat UI.
 

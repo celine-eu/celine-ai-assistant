@@ -95,7 +95,17 @@ Reload the LlamaIndex index from the current Qdrant state without restarting the
 
 ### `POST /admin/training-materials/sync`
 
-Fetch the latest `celine-training-materials` changes, check out the requested commit/ref in the mounted submodule checkout, and ingest newly changed Markdown files. Requires admin group membership.
+Clone or refresh `celine-training-materials` inside the API container, check out the requested ref, and ingest Markdown files.
+
+**Request body:**
+
+```json
+{
+  "target_ref": "origin/main"
+}
+```
+
+`target_ref` is optional. If omitted, the service uses `TRAINING_MATERIALS_REF`.
 
 ---
 

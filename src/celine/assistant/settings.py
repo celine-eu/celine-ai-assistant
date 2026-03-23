@@ -28,6 +28,19 @@ class Settings(BaseSettings):
     docs_poll_interval_seconds: int = Field(
         default=60, alias="DOCS_POLL_INTERVAL_SECONDS"
     )
+    training_materials_path: str = Field(
+        default="/workspace/repositories/celine-training-materials",
+        alias="TRAINING_MATERIALS_PATH",
+    )
+    training_materials_repo_url: str = Field(
+        default="", alias="TRAINING_MATERIALS_REPO_URL"
+    )
+    training_materials_ref: str = Field(
+        default="origin/main", alias="TRAINING_MATERIALS_REF"
+    )
+    training_materials_sync_on_start: bool = Field(
+        default=True, alias="TRAINING_MATERIALS_SYNC_ON_START"
+    )
 
     uploads_uri: str = Field(default="file://./data/uploads", alias="UPLOADS_URI")
     max_upload_mb: int = Field(default=25, alias="MAX_UPLOAD_MB")

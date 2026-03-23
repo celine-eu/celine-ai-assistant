@@ -19,7 +19,7 @@ from .uploads import store_upload, open_upload_stream, delete_upload
 from .settings import settings
 from .openai_vision import describe_image
 from .rag import upsert_documents_from_text
-from .training_materials_sync import sync_training_materials
+from .training_materials import sync_training_materials
 
 log = logging.getLogger(__name__)
 
@@ -241,7 +241,9 @@ async def sync_training_materials_route(
 ):
     _ = admin
     try:
-        return await sync_training_materials(target_ref=req.target_ref)
+        return await sync_training_materials(
+            target_ref=req.target_ref, force_full=False
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

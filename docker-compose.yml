@@ -53,6 +53,8 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment:
+      TRAINING_MATERIALS_PATH: /app/training-materials
     volumes:
       - ./data/app:/app/data
       - ./data/local_docs:/app/docs:ro
