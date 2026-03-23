@@ -30,3 +30,9 @@ class SSEEvent(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+
+
+class TrainingMaterialsSyncRequest(BaseModel):
+    target_ref: str | None = Field(
+        default=None, description="Git commit SHA or ref to sync in training materials"
+    )

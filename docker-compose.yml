@@ -55,8 +55,8 @@ services:
       - .env
     volumes:
       - ./data/app:/app/data
-      # optional: mount local docs for quick testing (set DOCS_URI=file:///docs)
       - ./data/local_docs:/app/docs:ro
+      - ../..:/workspace
     ports:
       - "8012:8012"
     depends_on:

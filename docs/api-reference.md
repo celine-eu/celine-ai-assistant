@@ -93,6 +93,10 @@ Re-index an existing attachment by ID. Useful after model changes.
 
 Reload the LlamaIndex index from the current Qdrant state without restarting the service.
 
+### `POST /admin/training-materials/sync`
+
+Fetch the latest `celine-training-materials` changes, check out the requested commit/ref in the mounted submodule checkout, and ingest newly changed Markdown files. Requires admin group membership.
+
 ---
 
 ## Health

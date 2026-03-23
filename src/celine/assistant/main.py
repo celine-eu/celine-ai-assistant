@@ -11,6 +11,7 @@ from .history import HistoryStore
 from .logging_ import configure_logging
 from .qdrant_setup import ensure_collection
 from .routes import router
+from .site_docs import sync_site_docs
 from .settings import settings
 
 configure_logging(settings.log_level)
@@ -27,6 +28,18 @@ def json_error(status_code: int, detail: str):
 async def lifespan(app: FastAPI):
     ensure_collection()
     app.state.history_store = HistoryStore()
+
+    if settings.ingest_enable:
+        try:
+            result = await sync_site_docs(
+                force_full=settings.ingest_force_reload_on_start
+            )
+            log.info("site_docs_synced", extra=result)
+        except Exception:
+            log.exception(
+                "site_docs_sync_failed",
+                extra={"root": "/workspace/repositories/celine-training-materials"},
+            )
 
     log.info("app started")
     try:
