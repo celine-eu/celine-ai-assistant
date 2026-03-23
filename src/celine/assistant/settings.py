@@ -25,19 +25,9 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = Field(default="", alias="QDRANT_API_KEY")
     qdrant_collection: str = Field(default="celine_docs", alias="QDRANT_COLLECTION")
 
-    docs_uri: str = Field(default="s3://docs/", alias="DOCS_URI")
     docs_poll_interval_seconds: int = Field(
         default=60, alias="DOCS_POLL_INTERVAL_SECONDS"
     )
-
-    s3_endpoint_url: str | None = Field(
-        default="http://host.docker.internal:9000", alias="S3_ENDPOINT_URL"
-    )
-    s3_access_key_id: str | None = Field(default="minioadmin", alias="S3_ACCESS_KEY_ID")
-    s3_secret_access_key: str | None = Field(
-        default="minioadmin", alias="S3_SECRET_ACCESS_KEY"
-    )
-    s3_region: str = Field(default="us-east-1", alias="S3_REGION")
 
     uploads_uri: str = Field(default="file://./data/uploads", alias="UPLOADS_URI")
     max_upload_mb: int = Field(default=25, alias="MAX_UPLOAD_MB")

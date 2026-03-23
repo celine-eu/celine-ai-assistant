@@ -12,23 +12,28 @@ from fastapi.responses import StreamingResponse
 from celine.assistant.ingest import ingest_file
 
 from .auth import UserInfo, get_user_identity, UserIdentity, is_admin
-from .models import ChatRequest, HealthResponse
+from .models import ChatRequest, HealthResponse, TrainingMaterialsSyncRequest
 from .rag import build_retriever, retrieve, node_to_source
 from .openai_stream import stream_chat
 from .uploads import store_upload, open_upload_stream, delete_upload
 from .settings import settings
 from .openai_vision import describe_image
 from .rag import upsert_documents_from_text
+from .training_materials_sync import sync_training_materials
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-_retriever = build_retriever()
 
 
 def _sse(event_type: str, data) -> str:
     payload = {"type": event_type, "data": data}
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _is_public_source(source: dict) -> bool:
+    metadata = source.get("metadata") or {}
+    return not bool(metadata.get("hidden"))
 
 
 async def _load_authorized_attachments(
@@ -229,6 +234,18 @@ async def upload_system(
     }
 
 
+@router.post("/admin/training-materials/sync")
+async def sync_training_materials_route(
+    req: TrainingMaterialsSyncRequest,
+    admin: UserIdentity = Depends(require_admin),
+):
+    _ = admin
+    try:
+        return await sync_training_materials(target_ref=req.target_ref)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.get("/attachments")
 async def list_attachments(
     request: Request,
@@ -321,6 +338,7 @@ async def chat(
     request: Request,
     user: UserIdentity = Depends(get_user_identity),
 ):
+    user_message = req.message.strip()
     conv = await request.app.state.history_store.get_or_create_conversation(
         user.user_id, req.conversation_id
     )
@@ -335,19 +353,29 @@ async def chat(
     attached = await _load_authorized_attachments(request, user, req.attachment_ids)
     attachment_block = _attachment_context_block(attached) if attached else None
 
-    nodes = await asyncio.to_thread(retrieve, _retriever, req.message, req.top_k)
-    sources = [node_to_source(n) for n in nodes]
+    sources: list[dict] = []
+    if user_message:
+        retriever = build_retriever(req.top_k)
+        nodes = await asyncio.to_thread(retrieve, retriever, user_message, req.top_k)
+        sources = [node_to_source(n) for n in nodes]
+    public_sources = [source for source in sources if _is_public_source(source)]
 
     if attachment_block:
         sources = [attachment_block, *sources]
+        public_sources = [attachment_block, *public_sources]
+
+    effective_message = (
+        user_message
+        or "Analyze the attached files and provide a concise summary of the relevant information."
+    )
 
     async def gen() -> AsyncGenerator[str, None]:
         assistant_text_parts: list[str] = []
         yield _sse("meta", {"conversation_id": conv.conversation_id})
         if req.include_citations:
-            yield _sse("sources", sources)
+            yield _sse("sources", public_sources)
 
-        async for tok in stream_chat(user_message=req.message, context_blocks=sources):
+        async for tok in stream_chat(user_message=effective_message, context_blocks=sources):
             assistant_text_parts.append(tok)
             yield _sse("token", tok)
 

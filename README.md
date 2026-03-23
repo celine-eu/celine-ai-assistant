@@ -12,6 +12,7 @@ The chat UI is part of [celine-frontend](https://github.com/celine-eu/celine-fro
 - JWT authentication (JWKS-based verification)
 - Vision support for image attachments
 - Admin endpoints for re-indexing and reloading
+- Internal knowledge ingestion from Markdown files in the documentation repository
 
 ## Quick Start
 
@@ -37,6 +38,8 @@ curl -X POST http://localhost:8000/chat \
 | `JWKS_URL` | JWKS endpoint for JWT verification | required |
 | `OPENAI_MODEL` | Chat model | `gpt-4o` |
 | `EMBED_MODEL` | Embedding model | `text-embedding-3-small` |
+
+The assistant preloads internal knowledge from the local checkout of `celine-training-materials`, mounted in the container via the parent workspace at `/workspace/repositories/celine-training-materials`. It indexes all Markdown files found there. This is intended for docs that should influence answers without being shown as visible sources in the chat UI.
 
 ## Documentation
 
