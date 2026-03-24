@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-03-24)
+
+### Chores
+
+- Upgrade celine-sdk to 1.4.3
+  ([`1606691`](https://github.com/celine-eu/celine-ai-assistant/commit/1606691bd18ecfe37a6f50ce3683a35cef8dfab0))
+
+### Features
+
+- New training materials
+  ([`f55b3da`](https://github.com/celine-eu/celine-ai-assistant/commit/f55b3da3d48f0d5c378418ac28959c28a276cab6))
+
+
 ## v1.0.3 (2026-03-03)
 
 ### Bug Fixes
