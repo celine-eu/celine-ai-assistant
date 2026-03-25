@@ -23,10 +23,11 @@ All settings are defined in `src/celine/assistant/settings.py` using `pydantic-s
 | `S3_ENDPOINT_URL` | `str` | none | S3-compatible storage endpoint (if used) |
 | `S3_BUCKET` | `str` | `assistant-uploads` | Bucket for raw file uploads |
 | `LOG_LEVEL` | `str` | `INFO` | Python log level |
-| `TRAINING_MATERIALS_PATH` | `str` | `/workspace/repositories/celine-training-materials` | Local checkout path used for Markdown ingestion |
+| `TRAINING_MATERIALS_PATH` | `str` | `/workspace/repositories/celine-training-materials` | Local checkout path used for Markdown ingestion and git sync |
 | `TRAINING_MATERIALS_REPO_URL` | `str` | empty | Git URL to clone/pull `celine-training-materials` from inside the container |
 | `TRAINING_MATERIALS_REF` | `str` | `origin/main` | Git ref checked out before ingestion |
 | `TRAINING_MATERIALS_SYNC_ON_START` | `bool` | `true` | If true, clone/fetch/checkout the training repo on startup before ingestion |
+| `MANIFEST_PATH` | `str` | `/app/data/manifest.json` | Writable manifest file used to track ingested training materials and site docs |
 
 ## Docker Compose Example
 

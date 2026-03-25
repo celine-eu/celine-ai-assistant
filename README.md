@@ -53,7 +53,7 @@ The API can manage the `celine-training-materials` repository directly inside th
 
 For Kubernetes, prefer an authenticated HTTPS URL, for example via a token-backed secret injected into `TRAINING_MATERIALS_REPO_URL`.
 
-The assistant preloads internal knowledge from the local checkout of `celine-training-materials`, mounted in the container via the parent workspace at `/workspace/repositories/celine-training-materials`. It indexes all Markdown files found there. This is intended for docs that should influence answers without being shown as visible sources in the chat UI.
+The assistant preloads internal knowledge from the local checkout of `celine-training-materials` mounted at `TRAINING_MATERIALS_PATH`. It indexes all Markdown files found there. This is intended for docs that should influence answers without being shown as visible sources in the chat UI.
 
 ## Documentation
 

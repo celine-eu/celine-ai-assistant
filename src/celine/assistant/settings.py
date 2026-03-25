@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     ingest_force_reload_on_start: bool = Field(
         default=False, alias="INGEST_FORCE_RELOAD_ON_START"
     )
-    manifest_path: str = Field(default="./data/manifest.json", alias="MANIFEST_PATH")
+    manifest_path: str = Field(default="/app/data/manifest.json", alias="MANIFEST_PATH")
 
     database_url: str = Field(
         default="postgresql+asyncpg://postgres:securepassword123@host.docker.internal:15432/ai_assistant",

@@ -11,11 +11,10 @@ from .rag import upsert_documents_from_text
 from .settings import settings
 
 log = logging.getLogger(__name__)
-DOCS_ROOT = Path("/workspace/repositories/celine-training-materials")
 
 
 def _docs_root() -> Path:
-    return DOCS_ROOT.resolve()
+    return Path(settings.training_materials_path).resolve()
 
 
 def _manifest_key(path: str) -> str:

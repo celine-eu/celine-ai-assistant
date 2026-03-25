@@ -6,19 +6,19 @@ from pathlib import Path
 from typing import Any
 
 from .site_docs import sync_site_docs
+from .settings import settings
 
-WORKSPACE_ROOT = Path("/workspace")
-DOCS_REPO_PATH = WORKSPACE_ROOT / "repositories" / "celine-training-materials"
 _sync_lock = asyncio.Lock()
 
 
 def docs_repo_path() -> Path:
-    return DOCS_REPO_PATH
+    return Path(settings.training_materials_path)
 
 
 def _run_git(*args: str) -> str:
+    repo_path = docs_repo_path()
     result = subprocess.run(
-        ["git", "-C", str(DOCS_REPO_PATH), *args],
+        ["git", "-C", str(repo_path), *args],
         check=True,
         capture_output=True,
         text=True,
@@ -27,8 +27,9 @@ def _run_git(*args: str) -> str:
 
 
 def _sync_repo(target_ref: str | None) -> dict[str, Any]:
-    if not (DOCS_REPO_PATH / ".git").exists():
-        raise RuntimeError(f"Training materials repo not found at {DOCS_REPO_PATH}")
+    repo_path = docs_repo_path()
+    if not (repo_path / ".git").exists():
+        raise RuntimeError(f"Training materials repo not found at {repo_path}")
 
     status = _run_git("status", "--porcelain")
     if status:
@@ -42,7 +43,7 @@ def _sync_repo(target_ref: str | None) -> dict[str, Any]:
     current_commit = _run_git("rev-parse", "HEAD")
 
     return {
-        "repo_path": str(DOCS_REPO_PATH),
+        "repo_path": str(repo_path),
         "target": resolved_target,
         "previous_commit": previous_commit,
         "current_commit": current_commit,
