@@ -65,22 +65,17 @@ async def build_dashboard_context(
 
     membership = getattr(participant, "membership", None)
     community = getattr(membership, "community", None)
-    member = getattr(membership, "member", None)
     community_id = getattr(community, "key", None)
-    member_id = getattr(member, "key", None)
     if not community_id:
         return None
 
     device_ids: list[str] = []
-    device_names: list[str] = []
     try:
         assets = await dt.participants.assets(user.user_id)
         for asset in getattr(assets, "items", []) or []:
             sensor_id = getattr(asset, "sensor_id", None)
             if sensor_id:
                 device_ids.append(sensor_id)
-                if getattr(asset, "name", None):
-                    device_names.append(str(asset.name))
     except Exception as exc:
         log.warning("dashboard_context_assets_failed", extra={"error": str(exc)})
 
@@ -173,14 +168,10 @@ async def build_dashboard_context(
     lines = [
         "Authenticated user dashboard context. Use these values when the user asks about the dashboard, Panoramica, overview, their energy values, or REC KPIs.",
         "If the user's request conflicts with these values, prefer the live dashboard context over generic explanations.",
-        f"- user_id: {user.user_id}",
-        f"- member_id: {member_id or 'unavailable'}",
-        f"- community_id: {community_id}",
         f"- generated_at_utc: {now.isoformat()}",
         f"- user_metrics_window_start_utc: {twelve_hours_ago.isoformat()}",
         f"- rec_metrics_window_start_utc: {trend_start.isoformat()}",
-        f"- device_ids: {', '.join(device_ids) if device_ids else 'unavailable'}",
-        f"- device_names: {', '.join(device_names) if device_names else 'unavailable'}",
+        f"- assets_detected: {len(device_ids)}",
         "",
         "User dashboard metrics:",
         _format_metric("production", user_metrics["production_kwh"]),
@@ -213,7 +204,5 @@ async def build_dashboard_context(
         "metadata": {
             "kind": "dashboard_context",
             "hidden": True,
-            "community_id": community_id,
-            "member_id": member_id,
         },
     }
