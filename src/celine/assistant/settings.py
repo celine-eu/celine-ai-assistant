@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     )
 
     admin_group: str = Field(default="admins", alias="ADMIN_GROUP")
+    digital_twin_api_url: str | None = Field(
+        default=None,
+        alias="DIGITAL_TWIN_API_URL",
+    )
 
 
 settings = Settings()

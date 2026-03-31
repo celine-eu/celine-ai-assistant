@@ -79,6 +79,24 @@ def _extract_jwt_from_authorization(request: Request) -> str | None:
     return request.headers.get("x-auth-request-access-token")
 
 
+def extract_access_token(request: Request) -> str | None:
+    token = _extract_jwt_from_authorization(request)
+    if token:
+        return token
+
+    authorization = request.headers.get("authorization")
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+
+    cookie_name = settings.oauth2_jwt_cookie_name
+    if cookie_name:
+        cookie_token = request.cookies.get(cookie_name)
+        if cookie_token:
+            return cookie_token
+
+    return None
+
+
 def _issuer_to_discovery_url(issuer: str) -> str:
     return issuer.rstrip("/") + "/.well-known/openid-configuration"
 
@@ -220,7 +238,7 @@ def _trusted_identity_from_headers(request: Request) -> UserIdentity | None:
 
 
 async def get_user_identity(request: Request) -> UserIdentity:
-    token = _extract_jwt_from_authorization(request)
+    token = extract_access_token(request)
 
     if token:
         try:
