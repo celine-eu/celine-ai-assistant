@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-03-31)
+
+### Bug Fixes
+
+- Data reduction
+  ([`4c2c947`](https://github.com/celine-eu/celine-ai-assistant/commit/4c2c947562f2dfa4ba7f09b14ad1c0430eaea95b))
+
+### Chores
+
+- Add task run
+  ([`5458f35`](https://github.com/celine-eu/celine-ai-assistant/commit/5458f35e1bbadca28889af2d52ce30cbbd57a27a))
+
+### Features
+
+- Ai-assistant add the knowledge of the user data
+  ([`1caa584`](https://github.com/celine-eu/celine-ai-assistant/commit/1caa584e8b2249d829a5c3bf8d9fabc5ca96fb6e))
+
+
 ## v1.1.0 (2026-03-24)
 
 ### Chores
