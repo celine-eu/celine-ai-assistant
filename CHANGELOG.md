@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.2.1 (2026-04-07)
+
+### Chores
+
+- Upgrade celine-sdk to 1.5.0
+  ([`68da17c`](https://github.com/celine-eu/celine-ai-assistant/commit/68da17c236edf97ac409094a3173120a8d2f2a94))
+
+- Upgrade celine-sdk to 1.6.0
+  ([`5ce7eb4`](https://github.com/celine-eu/celine-ai-assistant/commit/5ce7eb4d9655fc8005c55dc0318e0862f76a1503))
+
+
 ## v1.2.0 (2026-03-31)
 
 ### Bug Fixes
