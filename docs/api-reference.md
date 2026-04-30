@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints require a valid JWT in the `Authorization: Bearer <token>` header unless noted otherwise. The OpenAPI schema is available at `http://localhost:8000/docs`.
+All endpoints require a valid JWT unless noted otherwise. The JWT is read from the `x-auth-request-access-token` header (oauth2_proxy) or `Authorization: Bearer` header. OpenAPI docs at `http://localhost:8012/docs`.
 
 ## Chat
 
@@ -14,15 +14,19 @@ Stream a chat response via Server-Sent Events.
 {
   "message": "string",
   "conversation_id": "optional-uuid",
-  "context": {"page": "dashboard"}
+  "attachment_ids": ["optional-list-of-uuids"],
+  "context": {"page": "dashboard"},
+  "top_k": 5,
+  "include_citations": false
 }
 ```
 
-**Response:** `text/event-stream` — SSE tokens followed by a `[DONE]` sentinel.
+**Response:** `text/event-stream` — SSE events with `data: {"type": "<type>", "data": ...}` format.
 
 **Behavior:**
 - Creates a new conversation if `conversation_id` is omitted.
-- Retrieves relevant document chunks from Qdrant before calling OpenAI.
+- Loads authorized attachments and retrieves relevant document chunks from Qdrant.
+- Enriches the prompt with dashboard context from Digital Twin if configured.
 - Persists the full assistant reply once streaming completes.
 
 ---
@@ -31,13 +35,13 @@ Stream a chat response via Server-Sent Events.
 
 ### `POST /upload`
 
-Upload a file for RAG ingestion.
+Upload a file for RAG ingestion (user scope).
 
 **Request:** `multipart/form-data` with `file` field.
 
 **Response:** `201` with attachment metadata including `id`, `filename`, `content_type`.
 
-The file is parsed, chunked, embedded, and upserted into Qdrant. Raw file is stored in object storage.
+Images are captioned via the vision model before chunking. All files are parsed, chunked, embedded, and upserted into Qdrant.
 
 ### `GET /attachments`
 
@@ -57,7 +61,7 @@ Delete an attachment and remove its vectors from Qdrant.
 
 ### `GET /conversations`
 
-List all conversations for the authenticated user. Returns `id`, `title`, `created_at`, `message_count`.
+List all conversations for the authenticated user.
 
 ### `GET /conversations/{id}/messages`
 
@@ -73,39 +77,21 @@ Delete a conversation and all its messages.
 
 ### `GET /user`
 
-Return the authenticated user's profile derived from the JWT (`sub`, `email`, `name`).
+Return the authenticated user's profile derived from the JWT.
 
 ---
 
 ## Admin
 
-The following endpoints require the user to have admin group membership.
+The following endpoints require the user to be a member of the admin group.
 
 ### `POST /admin/uploads`
 
-List or inspect all uploads across all users (admin view).
-
-### `POST /admin/ingest`
-
-Re-index an existing attachment by ID. Useful after model changes.
-
-### `POST /admin/reload`
-
-Reload the LlamaIndex index from the current Qdrant state without restarting the service.
+Upload a file as a system-level attachment (visible to all users).
 
 ### `POST /admin/training-materials/sync`
 
-Clone or refresh `celine-training-materials` inside the API container, check out the requested ref, and ingest Markdown files.
-
-**Request body:**
-
-```json
-{
-  "target_ref": "origin/main"
-}
-```
-
-`target_ref` is optional. If omitted, the service uses `TRAINING_MATERIALS_REF`.
+Clone or refresh `celine-training-materials` inside the container, check out the requested ref, and ingest Markdown files.
 
 ---
 

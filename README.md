@@ -1,68 +1,76 @@
 # CELINE AI Assistant
 
-FastAPI API backend for the CELINE AI assistant. Implements a RAG (Retrieval-Augmented Generation) pipeline using LlamaIndex, Qdrant, and OpenAI. Provides streaming chat, conversation history, file-based RAG ingestion, and JWT authentication.
+FastAPI backend for the CELINE AI assistant. Implements a RAG (Retrieval-Augmented Generation) pipeline using LlamaIndex, Qdrant, and OpenAI. Provides streaming chat, conversation history, file uploads with vision support, and JWT authentication.
 
-The chat UI is part of [celine-frontend](https://github.com/celine-eu/celine-frontend) (`apps/assistant` and `@celine-eu/assistant-ui`).
+The chat UI is part of [celine-frontend](https://github.com/celine-eu/celine-frontend) (`apps/assistant`).
 
 ## Features
 
 - Streaming chat via Server-Sent Events (SSE)
 - Conversation history persisted in PostgreSQL
 - File upload with automatic RAG ingestion into Qdrant
+- Vision support for image attachments (captioning via OpenAI vision model)
+- Dashboard context enrichment from Digital Twin API
 - Automatic sync of `celine-training-materials` from a Git repository
-- JWT authentication (JWKS-based verification)
-- Vision support for image attachments
-- Admin endpoints for re-indexing and reloading
-- Internal knowledge ingestion from Markdown files in the documentation repository
+- Page-aware context and attachment scoping
+- JWT authentication (trusted headers from oauth2_proxy or JWKS verification)
+- Admin endpoints for system uploads and training materials sync
 
 ## Quick Start
 
 ```bash
-# Start all services (Qdrant, PostgreSQL, API)
-docker compose up -d
-
-# Send a chat message
-curl -X POST http://localhost:8000/chat \
-  -H "Authorization: Bearer <jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "What is a renewable energy community?"}' \
-  --no-buffer
+uv sync
+uv run alembic upgrade head
+task run
+# Listens on http://localhost:8012
 ```
 
 ## Configuration
 
-| Variable | Description | Default |
+| Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | OpenAI API key | required |
-| `QDRANT_URL` | Qdrant vector DB URL | `http://localhost:6333` |
-| `DATABASE_URL` | PostgreSQL async URL | required |
-| `JWKS_URL` | JWKS endpoint for JWT verification | required |
-| `OPENAI_MODEL` | Chat model | `gpt-4o` |
-| `EMBED_MODEL` | Embedding model | `text-embedding-3-small` |
-| `TRAINING_MATERIALS_PATH` | Local checkout path for training materials | `/app/training-materials` in container deployments |
-| `TRAINING_MATERIALS_REPO_URL` | Git URL used by the API container to clone/pull training materials | empty |
-| `TRAINING_MATERIALS_REF` | Ref checked out before ingest | `origin/main` |
+| `OPENAI_API_KEY` | — | OpenAI API key (required) |
+| `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Chat completion model |
+| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model |
+| `OPENAI_VISION_MODEL` | `gpt-4o-mini` | Vision model for image captioning |
+| `QDRANT_URL` | `http://host.docker.internal:6333` | Qdrant vector DB URL |
+| `QDRANT_API_KEY` | — | Optional Qdrant API key |
+| `QDRANT_COLLECTION` | `celine_docs` | Qdrant collection name |
+| `DATABASE_URL` | `postgresql+asyncpg://...host.docker.internal:15432/ai_assistant` | PostgreSQL async URL |
+| `OAUTH2_TRUST_HEADERS` | `true` | Trust headers from oauth2_proxy |
+| `OAUTH2_JWKS_URL` | — | JWKS endpoint (auto-discovered if not set) |
+| `OAUTH2_ISSUER` | — | OAuth2 issuer URL |
+| `OAUTH2_AUDIENCE` | `oauth2_proxy` | Expected JWT audience |
+| `ADMIN_GROUP` | `admins` | Group name for admin access |
+| `DIGITAL_TWIN_API_URL` | — | Digital Twin API for dashboard context |
+| `TRAINING_MATERIALS_PATH` | `/workspace/repositories/celine-training-materials` | Local path for training materials |
+| `TRAINING_MATERIALS_REPO_URL` | — | Git URL for auto-cloning training materials |
+| `TRAINING_MATERIALS_REF` | `origin/main` | Git ref for training materials |
+| `TRAINING_MATERIALS_SYNC_ON_START` | `true` | Auto-sync training materials on startup |
+| `UPLOADS_URI` | `file://./data/uploads` | Upload storage URI |
+| `MAX_UPLOAD_MB` | `25` | Max upload size in MB |
+| `INGEST_ENABLE` | `true` | Enable RAG ingestion |
 
-## Training Materials Sync
+## API Overview
 
-The API can manage the `celine-training-materials` repository directly inside the container.
-
-- If `TRAINING_MATERIALS_REPO_URL` is set, the container clones the repo into `TRAINING_MATERIALS_PATH` if missing.
-- On startup, it fetches `origin`, checks out `TRAINING_MATERIALS_REF`, and ingests Markdown files.
-- Admins can force a new sync through `POST /admin/training-materials/sync`.
-
-For Kubernetes, prefer an authenticated HTTPS URL, for example via a token-backed secret injected into `TRAINING_MATERIALS_REPO_URL`.
-
-The assistant preloads internal knowledge from the local checkout of `celine-training-materials` mounted at `TRAINING_MATERIALS_PATH`. It indexes all Markdown files found there. This is intended for docs that should influence answers without being shown as visible sources in the chat UI.
+| Group | Endpoints |
+|---|---|
+| **chat** | `POST /chat` (SSE streaming) |
+| **conversations** | `GET /conversations`, `GET /conversations/{id}/messages`, `DELETE /conversations/{id}` |
+| **attachments** | `GET /attachments`, `GET /attachments/{id}/raw`, `DELETE /attachments/{id}` |
+| **uploads** | `POST /upload` (user), `POST /admin/uploads` (system) |
+| **admin** | `POST /admin/training-materials/sync` |
+| **user** | `GET /user` |
+| **ops** | `GET /health` |
 
 ## Documentation
 
 | Document | Description |
 |---|---|
-| [Architecture](https://celine-eu.github.io/projects/celine-ai-assistant/docs/architecture) | RAG pipeline, component overview, service dependencies |
-| [Configuration](https://celine-eu.github.io/projects/celine-ai-assistant/docs/configuration) | All environment variables with types and defaults |
-| [API Reference](https://celine-eu.github.io/projects/celine-ai-assistant/docs/api-reference) | All endpoints: chat, upload, attachments, conversations, admin |
-| [Development](https://celine-eu.github.io/projects/celine-ai-assistant/docs/development) | Local setup, migrations, running tests |
+| [Architecture](docs/architecture.md) | RAG pipeline, component overview, service dependencies |
+| [Configuration](docs/configuration.md) | All environment variables with types and defaults |
+| [API Reference](docs/api-reference.md) | All endpoints: chat, upload, attachments, conversations, admin |
+| [Development](docs/development.md) | Local setup, migrations, taskfile commands |
 
 ## License
 

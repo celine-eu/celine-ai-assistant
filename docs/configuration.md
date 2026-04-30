@@ -1,50 +1,75 @@
 # Configuration
 
-All settings are defined in `src/celine/assistant/settings.py` using `pydantic-settings`. Values are read from environment variables.
+All settings are defined in `src/celine/assistant/settings.py` using `pydantic-settings`. Values are read from environment variables or `.env` file.
 
-## Required Settings
-
-| Variable | Type | Description |
-|---|---|---|
-| `OPENAI_API_KEY` | `str` | OpenAI API key |
-| `DATABASE_URL` | `str` | PostgreSQL async connection string (`postgresql+asyncpg://...`) |
-| `JWKS_URL` | `str` | JWKS endpoint for JWT signature verification |
-| `QDRANT_URL` | `str` | Qdrant base URL |
-
-## Optional Settings
+## OpenAI Settings
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `OPENAI_MODEL` | `str` | `gpt-4o` | Chat completion model |
-| `EMBED_MODEL` | `str` | `text-embedding-3-small` | Embedding model for indexing and retrieval |
+| `OPENAI_API_KEY` | `str` | — | OpenAI API key (required) |
+| `OPENAI_CHAT_MODEL` | `str` | `gpt-4o-mini` | Chat completion model |
+| `OPENAI_EMBED_MODEL` | `str` | `text-embedding-3-small` | Embedding model for indexing and retrieval |
+| `OPENAI_VISION_MODEL` | `str` | `gpt-4o-mini` | Vision model for image captioning |
+
+## Vector Store
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `QDRANT_URL` | `str` | `http://host.docker.internal:6333` | Qdrant base URL |
+| `QDRANT_API_KEY` | `str?` | — | Optional Qdrant API key |
 | `QDRANT_COLLECTION` | `str` | `celine_docs` | Qdrant collection name |
-| `TOP_K` | `int` | `5` | Number of retrieved context chunks per query |
-| `MAX_HISTORY_MESSAGES` | `int` | `20` | Maximum messages loaded from history per request |
-| `S3_ENDPOINT_URL` | `str` | none | S3-compatible storage endpoint (if used) |
-| `S3_BUCKET` | `str` | `assistant-uploads` | Bucket for raw file uploads |
-| `LOG_LEVEL` | `str` | `INFO` | Python log level |
-| `TRAINING_MATERIALS_PATH` | `str` | `/workspace/repositories/celine-training-materials` | Local checkout path used for Markdown ingestion and git sync |
-| `TRAINING_MATERIALS_REPO_URL` | `str` | empty | Git URL to clone/pull `celine-training-materials` from inside the container |
+
+## Database
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `DATABASE_URL` | `str` | `postgresql+asyncpg://...host.docker.internal:15432/ai_assistant` | PostgreSQL async connection string |
+| `DB_POOL_SIZE` | `int` | `10` | Connection pool size |
+| `DB_MAX_OVERFLOW` | `int` | `20` | Max overflow connections |
+| `DB_POOL_TIMEOUT` | `int` | `30` | Pool timeout in seconds |
+| `DB_POOL_RECYCLE` | `int` | `1800` | Connection recycle time in seconds |
+
+## Authentication
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `OAUTH2_TRUST_HEADERS` | `bool` | `true` | Trust JWT from proxy headers (oauth2_proxy) |
+| `OAUTH2_JWKS_URL` | `str?` | — | JWKS endpoint for JWT verification (auto-discovered if not set) |
+| `OAUTH2_ISSUER` | `str?` | — | OAuth2 issuer URL |
+| `OAUTH2_AUDIENCE` | `str?` | `oauth2_proxy` | Expected JWT audience |
+| `OAUTH2_JWT_COOKIE_NAME` | `str?` | — | Optional JWT cookie name |
+| `ADMIN_GROUP` | `str` | `admins` | Group name for admin access |
+
+## Training Materials
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `TRAINING_MATERIALS_PATH` | `str` | `/workspace/repositories/celine-training-materials` | Local checkout path for training materials |
+| `TRAINING_MATERIALS_REPO_URL` | `str` | — | Git URL to clone/pull training materials |
 | `TRAINING_MATERIALS_REF` | `str` | `origin/main` | Git ref checked out before ingestion |
-| `TRAINING_MATERIALS_SYNC_ON_START` | `bool` | `true` | If true, clone/fetch/checkout the training repo on startup before ingestion |
-| `MANIFEST_PATH` | `str` | `/app/data/manifest.json` | Writable manifest file used to track ingested training materials and site docs |
+| `TRAINING_MATERIALS_SYNC_ON_START` | `bool` | `true` | Auto-sync training materials on startup |
 
-## Docker Compose Example
+## Uploads and Ingestion
 
-```yaml
-environment:
-  OPENAI_API_KEY: sk-...
-  DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/assistant
-  JWKS_URL: http://keycloak:8080/realms/celine/protocol/openid-connect/certs
-  QDRANT_URL: http://qdrant:6333
-  TRAINING_MATERIALS_PATH: /app/training-materials
-  TRAINING_MATERIALS_REPO_URL: https://<token>@github.com/celine-eu/celine-training-materials.git
-  TRAINING_MATERIALS_REF: origin/main
-```
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `UPLOADS_URI` | `str` | `file://./data/uploads` | Upload storage URI |
+| `MAX_UPLOAD_MB` | `int` | `25` | Maximum upload file size in MB |
+| `INGEST_ENABLE` | `bool` | `true` | Enable RAG ingestion |
+| `INGEST_FORCE_RELOAD_ON_START` | `bool` | `false` | Force re-ingest all documents on startup |
+| `MANIFEST_PATH` | `str` | `/app/data/manifest.json` | Manifest file for tracking ingested documents |
+| `DOCS_POLL_INTERVAL_SECONDS` | `int` | `60` | Polling interval for document changes |
+
+## General
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `APP_ENV` | `str` | `prod` | Application environment |
+| `LOG_LEVEL` | `str` | `INFO` | Python log level |
+| `DIGITAL_TWIN_API_URL` | `str?` | — | Digital Twin API URL for dashboard context enrichment |
 
 ## Notes
 
-- `JWKS_URL` must be reachable at startup. The JWKS is fetched lazily on first request and cached.
 - `DATABASE_URL` must use the `asyncpg` driver for async SQLAlchemy compatibility.
-- Storage for uploads defaults to local disk if `S3_ENDPOINT_URL` is not set.
-- In Kubernetes, use an authenticated HTTPS Git URL or another credentialed Git transport for `TRAINING_MATERIALS_REPO_URL`.
+- When `OAUTH2_TRUST_HEADERS` is `true`, the JWT from `x-auth-request-access-token` header is trusted without JWKS verification (used behind oauth2_proxy).
+- Upload storage defaults to local disk. The `UPLOADS_URI` supports `file://` and `s3://` schemes.
