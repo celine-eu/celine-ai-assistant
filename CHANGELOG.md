@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.1 (2026-07-02)
+
+### Bug Fixes
+
+- Improve system prompt, use local skills for context answers
+  ([`41d98dd`](https://github.com/celine-eu/celine-ai-assistant/commit/41d98ddc49987183c4885c2cb0bdc4ddbafa2240))
+
+
 ## v1.4.0 (2026-07-02)
 
 ### Features
