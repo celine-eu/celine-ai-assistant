@@ -14,8 +14,9 @@ class DocumentSkill(Skill):
     name = "documents"
     description = "Search and retrieve uploaded documents."
 
-    def __init__(self, *, history_store: Any) -> None:
+    def __init__(self, *, history_store: Any, user_id: str = "") -> None:
         self._history = history_store
+        self._user_id = user_id
 
     def get_tools(self) -> list[dict[str, Any]]:
         return [
@@ -126,6 +127,9 @@ class DocumentSkill(Skill):
 
         att = await self._history.get_attachment_any(attachment_id)
         if not att:
+            return json.dumps({"error": "Attachment not found."})
+
+        if att["scope"] == "user" and att.get("owner_user_id") != self._user_id:
             return json.dumps({"error": "Attachment not found."})
 
         return json.dumps({

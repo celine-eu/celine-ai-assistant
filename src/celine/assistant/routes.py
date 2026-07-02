@@ -107,6 +107,13 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+@router.get("/ping")
+async def ping(
+    user: UserIdentity = Depends(get_user_identity),
+) -> dict:
+    return {"ok": True}
+
+
 async def _read_upload_or_413(file: UploadFile) -> bytes:
     data = await file.read()
     max_bytes = max(1, settings.max_upload_mb) * 1024 * 1024

@@ -66,6 +66,41 @@ TOOL_LABELS: dict[str, dict[str, str]] = {
         "it": "Caricamento punti di consegna",
         "es": "Cargando puntos de entrega",
     },
+    "get_weather_current": {
+        "en": "Checking current weather",
+        "it": "Controllo meteo attuale",
+        "es": "Consultando el clima actual",
+    },
+    "get_weather_forecast": {
+        "en": "Loading weather forecast",
+        "it": "Caricamento previsioni meteo",
+        "es": "Cargando pronóstico del tiempo",
+    },
+    "get_weather_alerts": {
+        "en": "Checking weather alerts",
+        "it": "Controllo allerte meteo",
+        "es": "Verificando alertas meteorológicas",
+    },
+    "get_energy_forecast": {
+        "en": "Loading energy forecast",
+        "it": "Caricamento previsioni energetiche",
+        "es": "Cargando pronóstico energético",
+    },
+    "get_flexibility_suggestions": {
+        "en": "Checking flexibility opportunities",
+        "it": "Controllo opportunità di flessibilità",
+        "es": "Verificando oportunidades de flexibilidad",
+    },
+    "get_gamification_status": {
+        "en": "Loading your points and level",
+        "it": "Caricamento punti e livello",
+        "es": "Cargando tus puntos y nivel",
+    },
+    "get_commitment_history": {
+        "en": "Loading commitment history",
+        "it": "Caricamento storico impegni",
+        "es": "Cargando historial de compromisos",
+    },
 }
 
 
@@ -130,6 +165,60 @@ SUGGESTIONS: list[dict[str, dict[str, str]]] = [
         },
         "icon": {"en": "map-pin", "it": "map-pin", "es": "map-pin"},
         "skill": {"en": "rec_registry", "it": "rec_registry", "es": "rec_registry"},
+    },
+    {
+        "text": {
+            "en": "What's the weather like today?",
+            "it": "Com'è il meteo oggi?",
+            "es": "¿Qué tiempo hace hoy?",
+        },
+        "icon": {"en": "cloud-sun", "it": "cloud-sun", "es": "cloud-sun"},
+        "skill": {"en": "weather", "it": "weather", "es": "weather"},
+    },
+    {
+        "text": {
+            "en": "Weather forecast for tomorrow?",
+            "it": "Previsioni meteo per domani?",
+            "es": "¿Pronóstico del tiempo para mañana?",
+        },
+        "icon": {"en": "calendar", "it": "calendar", "es": "calendar"},
+        "skill": {"en": "weather", "it": "weather", "es": "weather"},
+    },
+    {
+        "text": {
+            "en": "Any weather alerts?",
+            "it": "Ci sono allerte meteo?",
+            "es": "¿Hay alertas meteorológicas?",
+        },
+        "icon": {"en": "alert-triangle", "it": "alert-triangle", "es": "alert-triangle"},
+        "skill": {"en": "weather", "it": "weather", "es": "weather"},
+    },
+    {
+        "text": {
+            "en": "When should I run my appliances today?",
+            "it": "Quando dovrei usare gli elettrodomestici oggi?",
+            "es": "¿Cuándo debería usar mis electrodomésticos hoy?",
+        },
+        "icon": {"en": "clock", "it": "clock", "es": "clock"},
+        "skill": {"en": "weather", "it": "weather", "es": "weather"},
+    },
+    {
+        "text": {
+            "en": "How can I earn more points?",
+            "it": "Come posso guadagnare più punti?",
+            "es": "¿Cómo puedo ganar más puntos?",
+        },
+        "icon": {"en": "star", "it": "star", "es": "star"},
+        "skill": {"en": "flexibility", "it": "flexibility", "es": "flexibility"},
+    },
+    {
+        "text": {
+            "en": "What's my level and ranking?",
+            "it": "Qual è il mio livello e la mia classifica?",
+            "es": "¿Cuál es mi nivel y clasificación?",
+        },
+        "icon": {"en": "trophy", "it": "trophy", "es": "trophy"},
+        "skill": {"en": "flexibility", "it": "flexibility", "es": "flexibility"},
     },
 ]
 

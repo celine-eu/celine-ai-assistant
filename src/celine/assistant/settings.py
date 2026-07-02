@@ -82,6 +82,10 @@ class Settings(BaseSettings):
         default="http://172.17.0.1:8004",
         alias="REC_REGISTRY_API_URL",
     )
+    flexibility_api_url: str | None = Field(
+        default="http://172.17.0.1:8017",
+        alias="FLEXIBILITY_API_URL",
+    )
 
     max_tool_rounds: int = Field(default=6, alias="MAX_TOOL_ROUNDS")
     max_tool_result_chars: int = Field(default=8000, alias="MAX_TOOL_RESULT_CHARS")
