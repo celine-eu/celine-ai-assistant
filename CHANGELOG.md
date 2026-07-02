@@ -2,6 +2,51 @@
 
 <!-- version list -->
 
+## v1.3.0 (2026-07-02)
+
+### Chores
+
+- Update docs
+  ([`3ec1881`](https://github.com/celine-eu/celine-ai-assistant/commit/3ec1881f8b570f24102d9620ad556da86b2be9a4))
+
+- Upgrade celine-sdk to 1.10.0
+  ([`b62f2c5`](https://github.com/celine-eu/celine-ai-assistant/commit/b62f2c5b3c83a0ed1a888c92855d503ed27ced9b))
+
+- Upgrade celine-sdk to 1.11.0
+  ([`bd0db9e`](https://github.com/celine-eu/celine-ai-assistant/commit/bd0db9e0546c2dc247f6c08daba424f0799ad802))
+
+- Upgrade celine-sdk to 1.12.0
+  ([`462f194`](https://github.com/celine-eu/celine-ai-assistant/commit/462f194668ffbd450bdd810e2bcc441be7b650b5))
+
+- Upgrade celine-sdk to 1.12.1
+  ([`1d272af`](https://github.com/celine-eu/celine-ai-assistant/commit/1d272aff0131c6bcefd6c927aa2308efa7c4a879))
+
+- Upgrade celine-sdk to 1.7.0
+  ([`fbb608c`](https://github.com/celine-eu/celine-ai-assistant/commit/fbb608ccb0e0a73fe372bafbd76db3d8fbdc186a))
+
+- Upgrade celine-sdk to 1.8.0
+  ([`52ee2b2`](https://github.com/celine-eu/celine-ai-assistant/commit/52ee2b297afeed6b330e6c62cbe49aea8141527a))
+
+- Upgrade celine-sdk to 1.9.0
+  ([`d2ce86f`](https://github.com/celine-eu/celine-ai-assistant/commit/d2ce86fd68e508ae2e35fcca148ba6ffd1668b7b))
+
+- **deps**: Bump the runtime-dependencies group across 1 directory with 4 updates
+  ([`15e01e5`](https://github.com/celine-eu/celine-ai-assistant/commit/15e01e577dde3ed993b18bdc4dc9a0f5c9c97b3c))
+
+### Continuous Integration
+
+- Bump the actions group across 1 directory with 5 updates
+  ([`b6a8f82`](https://github.com/celine-eu/celine-ai-assistant/commit/b6a8f827723f0297bb0d284c6161f3224b1fe49f))
+
+### Features
+
+- Add skills, add suggestions, add agentic loop
+  ([`3c93a5f`](https://github.com/celine-eu/celine-ai-assistant/commit/3c93a5f7cd769899e7a3a6f76d5767d5f7d75da7))
+
+- Added new AI-Assistant buttons and made the response more user-friendly
+  ([`469892f`](https://github.com/celine-eu/celine-ai-assistant/commit/469892fc3331541cee5226e41b7002d26d1c8692))
+
+
 ## v1.2.1 (2026-04-07)
 
 ### Chores
