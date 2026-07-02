@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2 (2026-07-02)
+
+### Bug Fixes
+
+- Add markdown deps
+  ([`11d47a2`](https://github.com/celine-eu/celine-ai-assistant/commit/11d47a2fad6f19bde4adde7190cba102eb398909))
+
+
 ## v1.4.1 (2026-07-02)
 
 ### Bug Fixes
