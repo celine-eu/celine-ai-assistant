@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0 (2026-07-02)
+
+### Features
+
+- Add flexibility, weather skills
+  ([`85bddfd`](https://github.com/celine-eu/celine-ai-assistant/commit/85bddfd4816353c8a61469b7c0a8cc94aabb2023))
+
+
 ## v1.3.0 (2026-07-02)
 
 ### Chores
