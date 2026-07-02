@@ -11,6 +11,8 @@ from fastapi import HTTPException, Request
 from jose import jwt
 from pydantic import BaseModel, Field
 
+from celine.sdk.auth.jwt import extract_groups
+
 from .settings import settings
 
 log = logging.getLogger(__name__)
@@ -54,11 +56,7 @@ class UserInfo(BaseModel):
         info.last_name = claims.get("family_name", "") or ""
         info.email = claims.get("email", "") or ""
 
-        groups = claims.get("groups", []) or []
-        if isinstance(groups, str):
-            groups = [g.strip() for g in groups.split(",") if g.strip()]
-        info.groups = list(groups)
-
+        info.groups = extract_groups(claims)
         info.is_admin = settings.admin_group in set(info.groups)
         return info
 
@@ -69,9 +67,7 @@ class AuthError(Exception):
 
 def is_admin(user: UserIdentity) -> bool:
     claims = user.raw.get("claims", {}) or {}
-    groups = claims.get("groups", []) or []
-    if isinstance(groups, str):
-        groups = [g.strip() for g in groups.split(",") if g.strip()]
+    groups = extract_groups(claims)
     return settings.admin_group in set(groups)
 
 

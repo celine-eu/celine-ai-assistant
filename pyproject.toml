@@ -2,7 +2,7 @@
 name = "celine-chatbot-api"
 version = "1.2.1"
 description = "FastAPI RAG chatbot using LlamaIndex + Qdrant + OpenAI"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 readme = "README.md" 
 dependencies = [
   "fastapi>=0.115.0",
@@ -16,11 +16,13 @@ dependencies = [
   "llama-index-embeddings-openai>=0.2.0",
   "openai>=1.40.0",
   "markitdown>=0.1.5",
+  "pymupdf>=1.25.0",
+  "Pillow>=11.0.0",
   "python-jose[cryptography]>=3.3.0",
   "fsspec>=2024.6.0",
   "s3fs>=2024.6.0",
   "python-multipart>=0.0.27",
-  "celine-sdk>=1.12.1",
+  "celine-sdk>=1.13.0",
   "alembic>=1.18.4",
   "sqlalchemy[asyncio]>=2.0.46",
   "asyncpg>=0.31.0",

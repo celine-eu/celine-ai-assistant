@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 import logging
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 
-from celine.assistant.ingest import ingest_file
-
-from .auth import UserInfo, get_user_identity, UserIdentity, is_admin
-from .dashboard_context import build_dashboard_context
+from .auth import UserInfo, get_user_identity, UserIdentity, is_admin, extract_access_token
 from .models import (
     ChatRequest,
     HealthResponse,
@@ -21,11 +17,14 @@ from .models import (
 )
 from .rag import build_retriever, retrieve, node_to_source
 from .openai_stream import stream_chat
-from .uploads import store_upload, open_upload_stream, delete_upload
+from .uploads import StoredFile, store_upload, open_upload_stream, delete_upload
 from .settings import settings
 from .openai_vision import describe_image
+from .document_processing import detect_mime, extract_text
 from .rag import upsert_documents_from_text
 from .training_materials import sync_training_materials
+from .skills.factory import build_skill_registry
+from .suggestions import get_suggestions, get_tool_labels
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +32,8 @@ router = APIRouter()
 
 
 def _sse(event_type: str, data) -> str:
-    payload = {"type": event_type, "data": data}
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"event: {event_type}\ndata: {payload}\n\n"
 
 
 def _is_public_source(source: dict) -> bool:
@@ -126,6 +125,84 @@ def _is_image(filename: str, content_type: str | None) -> bool:
     )
 
 
+async def _process_upload(
+    request: Request,
+    data: bytes,
+    stored: StoredFile,
+    scope: str,
+    owner_user_id: str | None,
+) -> dict:
+    """Shared upload processing for both user and system scopes.
+
+    Determines the processing path based on file type:
+    - Images: describe via OpenAI vision
+    - PDFs / documents: extract text via document_processing pipeline
+    """
+    detected_mime = detect_mime(data)
+    effective_mime = (
+        detected_mime
+        if detected_mime != "application/octet-stream"
+        else (stored.content_type or "")
+    )
+
+    extracted_text: str | None = None
+    caption: str | None = None
+
+    if _is_image(stored.filename, effective_mime):
+        caption = await describe_image(image_bytes=data)
+        extracted_text = caption
+    elif effective_mime == "application/pdf" or stored.filename.lower().endswith(".pdf"):
+        extracted_text = await extract_text(data, effective_mime, stored.filename)
+    else:
+        try:
+            extracted_text = await extract_text(data, effective_mime, stored.filename)
+        except Exception:
+            log.warning("extract_text_failed", extra={"filename": stored.filename})
+
+    att_id = await request.app.state.history_store.record_attachment(
+        scope=scope,
+        owner_user_id=owner_user_id,
+        uri=stored.uri,
+        path=stored.path,
+        filename=stored.filename,
+        content_type=stored.content_type,
+        size_bytes=stored.size_bytes,
+        caption=caption,
+        ocr_text=extracted_text,
+    )
+
+    if extracted_text:
+        kind = "image_caption" if caption else "document_content"
+        label = (
+            f"Image description for {stored.filename}"
+            if caption
+            else f"Document content for {stored.filename}"
+        )
+        await upsert_documents_from_text(
+            text=f"{label}:\n{extracted_text}",
+            metadata={
+                "attachment_id": att_id,
+                "source_uri": stored.uri,
+                "filename": stored.filename,
+                "content_type": stored.content_type,
+                "scope": scope,
+                "owner_user_id": owner_user_id,
+                "kind": kind,
+            },
+        )
+
+    return {
+        "status": "indexed" if extracted_text else "stored",
+        "attachment_id": att_id,
+        "uri": stored.uri,
+        "filename": stored.filename,
+        "content_type": stored.content_type,
+        "size": stored.size_bytes,
+        "scope": scope,
+        "caption": caption,
+    }
+
+
 @router.post("/upload")
 async def upload_user(
     request: Request,
@@ -142,45 +219,13 @@ async def upload_user(
         data=data,
     )
 
-    caption: str | None = None
-    if _is_image(stored.filename, stored.content_type):
-        caption = await describe_image(image_bytes=data)
-
-    att_id = await request.app.state.history_store.record_attachment(
+    return await _process_upload(
+        request=request,
+        data=data,
+        stored=stored,
         scope="user",
         owner_user_id=user.user_id,
-        uri=stored.uri,
-        path=stored.path,
-        filename=stored.filename,
-        content_type=stored.content_type,
-        size_bytes=stored.size_bytes,
-        caption=caption,
     )
-
-    if caption:
-        await upsert_documents_from_text(
-            text=f"Image description for {stored.filename}:\n{caption}",
-            metadata={
-                "attachment_id": att_id,
-                "source_uri": stored.uri,
-                "filename": stored.filename,
-                "content_type": stored.content_type,
-                "scope": "user",
-                "owner_user_id": user.user_id,
-                "kind": "image_caption",
-            },
-        )
-
-    return {
-        "status": "indexed" if caption else "stored",
-        "attachment_id": att_id,
-        "uri": stored.uri,
-        "filename": stored.filename,
-        "content_type": stored.content_type,
-        "size": stored.size_bytes,
-        "scope": "user",
-        "caption": caption,
-    }
 
 
 @router.post("/admin/uploads")
@@ -199,45 +244,13 @@ async def upload_system(
         data=data,
     )
 
-    caption: str | None = None
-    if _is_image(stored.filename, stored.content_type):
-        caption = await describe_image(image_bytes=data)
-
-    att_id = await request.app.state.history_store.record_attachment(
+    return await _process_upload(
+        request=request,
+        data=data,
+        stored=stored,
         scope="system",
         owner_user_id=None,
-        uri=stored.uri,
-        path=stored.path,
-        filename=stored.filename,
-        content_type=stored.content_type,
-        size_bytes=stored.size_bytes,
-        caption=caption,
     )
-
-    if caption:
-        await upsert_documents_from_text(
-            text=f"System image description for {stored.filename}:\n{caption}",
-            metadata={
-                "attachment_id": att_id,
-                "source_uri": stored.uri,
-                "filename": stored.filename,
-                "content_type": stored.content_type,
-                "scope": "system",
-                "owner_user_id": None,
-                "kind": "image_caption",
-            },
-        )
-
-    return {
-        "status": "indexed" if caption else "stored",
-        "attachment_id": att_id,
-        "uri": stored.uri,
-        "filename": stored.filename,
-        "content_type": stored.content_type,
-        "size": stored.size_bytes,
-        "scope": "system",
-        "caption": caption,
-    }
 
 
 @router.post("/admin/training-materials/sync")
@@ -340,6 +353,26 @@ async def get_user(
     return UserInfo.from_identity(user)
 
 
+@router.get("/suggestions")
+async def suggestions(
+    request: Request,
+    user: UserIdentity = Depends(get_user_identity),
+    lang: str = "en",
+):
+    raw_token = extract_access_token(request)
+    registry = build_skill_registry(
+        user_token=raw_token,
+        user_id=user.user_id,
+        settings=settings,
+        history_store=request.app.state.history_store,
+    )
+    available = set(registry.skills.keys())
+    return {
+        "suggestions": get_suggestions(lang=lang, available_skills=available),
+        "tool_labels": get_tool_labels(lang=lang),
+    }
+
+
 @router.post("/chat")
 async def chat(
     req: ChatRequest,
@@ -347,20 +380,29 @@ async def chat(
     user: UserIdentity = Depends(get_user_identity),
 ):
     user_message = req.message.strip()
-    conv = await request.app.state.history_store.get_or_create_conversation(
+    history_store = request.app.state.history_store
+
+    conv = await history_store.get_or_create_conversation(
         user.user_id, req.conversation_id
     )
 
     try:
-        await request.app.state.history_store.append_message(
+        await history_store.append_message(
             user.user_id, conv.conversation_id, "user", req.message
         )
     except Exception:
         log.exception("history_append_user_failed")
 
+    raw_token = extract_access_token(request)
+    skill_registry = build_skill_registry(
+        user_token=raw_token,
+        user_id=user.user_id,
+        settings=settings,
+        history_store=history_store,
+    )
+
     attached = await _load_authorized_attachments(request, user, req.attachment_ids)
     attachment_block = _attachment_context_block(attached) if attached else None
-    dashboard_block = await build_dashboard_context(request, user)
     page_block = page_context_block(req.context)
 
     sources: list[dict] = []
@@ -374,9 +416,6 @@ async def chat(
         sources = [attachment_block, *sources]
         public_sources = [attachment_block, *public_sources]
 
-    if dashboard_block:
-        sources = [dashboard_block, *sources]
-
     if page_block:
         sources = [page_block, *sources]
 
@@ -385,29 +424,58 @@ async def chat(
         or "Analyze the attached files and provide a concise summary of the relevant information."
     )
 
+    history_messages = await history_store.list_messages(
+        user.user_id, conv.conversation_id, limit=settings.chat_history_limit
+    )
+    prior_messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in history_messages
+        if m["role"] in ("user", "assistant") and m["content"]
+    ]
+    if prior_messages and prior_messages[-1].get("role") == "user":
+        prior_messages = prior_messages[:-1]
+
     async def gen() -> AsyncGenerator[str, None]:
         assistant_text_parts: list[str] = []
         yield _sse("meta", {"conversation_id": conv.conversation_id})
         if req.include_citations:
             yield _sse("sources", public_sources)
 
-        async for tok in stream_chat(user_message=effective_message, context_blocks=sources):
-            assistant_text_parts.append(tok)
-            yield _sse("token", tok)
+        async for event_str in stream_chat(
+            user_message=effective_message,
+            context_blocks=sources,
+            history=prior_messages,
+            skill_registry=skill_registry,
+        ):
+            if event_str.startswith("event: token\n"):
+                data_line = event_str.split("data: ", 1)[1].rstrip("\n")
+                try:
+                    tok = json.loads(data_line)
+                    if isinstance(tok, str):
+                        assistant_text_parts.append(tok)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            yield event_str
 
         try:
-            await request.app.state.history_store.append_message(
-                user.user_id,
-                conv.conversation_id,
-                "assistant",
-                "".join(assistant_text_parts),
-            )
+            full_text = "".join(assistant_text_parts)
+            if full_text:
+                await history_store.append_message(
+                    user.user_id,
+                    conv.conversation_id,
+                    "assistant",
+                    full_text,
+                )
         except Exception:
             log.exception("history_append_assistant_failed")
 
         yield _sse("done", None)
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/conversations")

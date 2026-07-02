@@ -82,7 +82,10 @@ class ChatMeta(BaseModel):
 
 
 class SSEEvent(BaseModel):
-    type: Literal["meta", "token", "sources", "done", "error"]
+    type: Literal[
+        "meta", "token", "sources", "done", "error",
+        "tool_start", "tool_progress", "tool_result", "tool_error",
+    ]
     data: str | list[SourceChunk] | ChatMeta | None = None
 
 

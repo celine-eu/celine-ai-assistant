@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_chat_model: str = Field(default="gpt-4o-mini", alias="OPENAI_CHAT_MODEL")
+    openai_chat_model: str = Field(default="gpt-5.4-mini", alias="OPENAI_CHAT_MODEL")
     openai_embed_model: str = Field(
         default="text-embedding-3-small", alias="OPENAI_EMBED_MODEL"
     )
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     qdrant_url: str = Field(
         default="http://host.docker.internal:6333", alias="QDRANT_URL"
     )
-    qdrant_api_key: str | None = Field(default="", alias="QDRANT_API_KEY")
+    qdrant_api_key: str | None = Field(default=None, alias="QDRANT_API_KEY")
     qdrant_collection: str = Field(default="celine_docs", alias="QDRANT_COLLECTION")
 
     docs_poll_interval_seconds: int = Field(
@@ -71,9 +71,23 @@ class Settings(BaseSettings):
 
     admin_group: str = Field(default="admins", alias="ADMIN_GROUP")
     digital_twin_api_url: str | None = Field(
-        default=None,
+        default="http://172.17.0.1:8002",
         alias="DIGITAL_TWIN_API_URL",
     )
+    datasets_api_url: str | None = Field(
+        default="http://172.17.0.1:8001",
+        alias="DATASETS_API_URL",
+    )
+    rec_registry_api_url: str | None = Field(
+        default="http://172.17.0.1:8004",
+        alias="REC_REGISTRY_API_URL",
+    )
+
+    max_tool_rounds: int = Field(default=6, alias="MAX_TOOL_ROUNDS")
+    max_tool_result_chars: int = Field(default=8000, alias="MAX_TOOL_RESULT_CHARS")
+    chat_history_limit: int = Field(default=20, alias="CHAT_HISTORY_LIMIT")
+    chat_word_limit: int = Field(default=25000, alias="CHAT_WORD_LIMIT")
+    chat_hot_messages: int = Field(default=6, alias="CHAT_HOT_MESSAGES")
 
 
 settings = Settings()
