@@ -6,13 +6,13 @@ The chat UI is part of [celine-frontend](https://github.com/celine-eu/celine-fro
 
 ## Features
 
-- Streaming chat via Server-Sent Events (SSE)
+- **Agentic chat** with tool-calling loop — the LLM autonomously invokes skills to fetch live data
+- **Skill system** — modular skills for energy data (Digital Twin), weather/forecasts, flexibility/gamification, REC registry, and document search
+- Streaming chat via Server-Sent Events (SSE) with tool progress events
 - Conversation history persisted in PostgreSQL
 - File upload with automatic RAG ingestion into Qdrant
 - Vision support for image attachments (captioning via OpenAI vision model)
-- Dashboard context enrichment from Digital Twin API
 - Automatic sync of `celine-training-materials` from a Git repository
-- Page-aware context and attachment scoping
 - JWT authentication (trusted headers from oauth2_proxy or JWKS verification)
 - Admin endpoints for system uploads and training materials sync
 
@@ -42,7 +42,9 @@ task run
 | `OAUTH2_ISSUER` | — | OAuth2 issuer URL |
 | `OAUTH2_AUDIENCE` | `oauth2_proxy` | Expected JWT audience |
 | `ADMIN_GROUP` | `admins` | Group name for admin access |
-| `DIGITAL_TWIN_API_URL` | — | Digital Twin API for dashboard context |
+| `DIGITAL_TWIN_API_URL` | — | Digital Twin API for energy/weather/forecast skills |
+| `REC_REGISTRY_API_URL` | — | REC Registry API for membership/assets/delivery points |
+| `FLEXIBILITY_API_URL` | — | Flexibility API for load-shift suggestions and gamification |
 | `TRAINING_MATERIALS_PATH` | `/workspace/repositories/celine-training-materials` | Local path for training materials |
 | `TRAINING_MATERIALS_REPO_URL` | — | Git URL for auto-cloning training materials |
 | `TRAINING_MATERIALS_REF` | `origin/main` | Git ref for training materials |
@@ -55,13 +57,26 @@ task run
 
 | Group | Endpoints |
 |---|---|
-| **chat** | `POST /chat` (SSE streaming) |
+| **chat** | `POST /chat` (SSE streaming with agentic tool calls) |
+| **suggestions** | `GET /suggestions` (localized prompt suggestions and tool labels) |
 | **conversations** | `GET /conversations`, `GET /conversations/{id}/messages`, `DELETE /conversations/{id}` |
 | **attachments** | `GET /attachments`, `GET /attachments/{id}/raw`, `DELETE /attachments/{id}` |
 | **uploads** | `POST /upload` (user), `POST /admin/uploads` (system) |
 | **admin** | `POST /admin/training-materials/sync` |
 | **user** | `GET /user` |
 | **ops** | `GET /health` |
+
+## Skills
+
+The assistant uses a modular skill system. Each skill exposes OpenAI function-calling tools that the LLM invokes autonomously during conversation. Skills are registered per-request based on available API endpoints and user authentication.
+
+| Skill | Tools | Data source |
+|---|---|---|
+| **Digital Twin** | `query_participant_metrics`, `query_community_metrics`, `query_participant_profile`, `query_participant_assets` | Digital Twin API |
+| **Weather** | `get_weather_current`, `get_weather_forecast`, `get_weather_alerts`, `get_energy_forecast` | Digital Twin API (weather fetchers) |
+| **Flexibility** | `get_flexibility_suggestions`, `get_gamification_status`, `get_commitment_history` | Flexibility API + Digital Twin API |
+| **REC Registry** | `get_my_rec_profile`, `get_my_community_details`, `get_my_assets`, `get_my_asset_detail`, `get_my_delivery_points` | REC Registry API |
+| **Documents** | `search_documents`, `get_attachment_info` | Qdrant vector store |
 
 ## Documentation
 

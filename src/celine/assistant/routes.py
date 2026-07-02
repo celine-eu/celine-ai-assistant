@@ -13,7 +13,6 @@ from .models import (
     ChatRequest,
     HealthResponse,
     TrainingMaterialsSyncRequest,
-    page_context_block,
 )
 from .rag import build_retriever, retrieve, node_to_source
 from .openai_stream import stream_chat
@@ -410,7 +409,6 @@ async def chat(
 
     attached = await _load_authorized_attachments(request, user, req.attachment_ids)
     attachment_block = _attachment_context_block(attached) if attached else None
-    page_block = page_context_block(req.context)
 
     sources: list[dict] = []
     if user_message:
@@ -422,9 +420,6 @@ async def chat(
     if attachment_block:
         sources = [attachment_block, *sources]
         public_sources = [attachment_block, *public_sources]
-
-    if page_block:
-        sources = [page_block, *sources]
 
     effective_message = (
         user_message
