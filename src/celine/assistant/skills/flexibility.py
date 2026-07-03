@@ -167,8 +167,11 @@ class FlexibilitySkill(Skill):
                 "target_period": item.to_period,
                 "target_time": item.to_time,
                 "is_tomorrow": item.to_is_tomorrow,
+                # Community-first suggestions: impact/reward are None when the member's
+                # device has no usable forecast (visibility is community-driven).
                 "impact_kwh": item.impact_kwh_estimated,
                 "reward_points": item.reward_points,
+                "community_kwh": getattr(item, "community_kwh", 0.0),
                 "confidence": item.confidence,
             })
 
@@ -177,17 +180,28 @@ class FlexibilitySkill(Skill):
             "count": len(suggestions),
         }
         if suggestions:
-            best = max(suggestions, key=lambda s: s["reward_points"])
+            best = max(
+                suggestions,
+                key=lambda s: (s["reward_points"] or 0, s["community_kwh"] or 0),
+            )
             result["best_opportunity"] = {
                 "time_window": best["time_window"],
                 "reward_points": best["reward_points"],
                 "impact_kwh": best["impact_kwh"],
+                "community_kwh": best["community_kwh"],
             }
-            result["tip"] = (
-                f"The best opportunity right now is worth {best['reward_points']} points "
-                f"during {best['time_window']}. Shifting consumption to this window "
-                f"could save ~{best['impact_kwh']:.1f} kWh."
-            )
+            if best["reward_points"] is not None and best["impact_kwh"] is not None:
+                result["tip"] = (
+                    f"The best opportunity right now is worth {best['reward_points']} points "
+                    f"during {best['time_window']}. Shifting consumption to this window "
+                    f"could save ~{best['impact_kwh']:.1f} kWh."
+                )
+            else:
+                result["tip"] = (
+                    f"The community has a solar surplus of ~{best['community_kwh']:.0f} kWh "
+                    f"during {best['time_window']}. Shifting consumption into this window "
+                    f"helps the community use its own energy."
+                )
         else:
             result["tip"] = "No flexibility opportunities available right now. Check back later."
 

@@ -337,7 +337,7 @@ wheels = [
 
 [[package]]
 name = "celine-sdk"
-version = "1.13.0"
+version = "1.14.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiomqtt" },
@@ -352,9 +352,9 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0f/02/f2de9e311e15f21256fe870381bd6b61f420cfa2d30eafac62bb5bd98cab/celine_sdk-1.13.0.tar.gz", hash = "sha256:3c1f5c0057255e546b2e111fa1b368bdb3a41a87629a27c7c2bf2937e87dbf53", size = 182306, upload-time = "2026-07-02T07:16:39.753Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/14/ad/4a4b814beabfcad0ea0d6bf6e64aa1641a9f5312aadc5a3246bc39facd9a/celine_sdk-1.14.0.tar.gz", hash = "sha256:26b5db88a230f77ccd2f06eed2d59a0fe64db7d3a418bd96d693f0fd16b52414", size = 182580, upload-time = "2026-07-03T09:07:59.906Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1a/ee/a684552d51ec74ed5fdf40950bf5dad6d0c80ac2437a652ea6f3ef6835e4/celine_sdk-1.13.0-py3-none-any.whl", hash = "sha256:3adf446ca07f5685e5b7f09f5d56ed0ff8b2eaffb0a2683a47c9b03fa3c99986", size = 485684, upload-time = "2026-07-02T07:16:38.276Z" },
+    { url = "https://files.pythonhosted.org/packages/74/bb/4c626ecbe65b3ac5dd3f7463f7f6ee29fde8192513db00c9918835bb1404/celine_sdk-1.14.0-py3-none-any.whl", hash = "sha256:5f7e1e7117baa3850a69d94dced4b1b70009fce3fa87a329d85e5225ac8a43d4", size = 485995, upload-time = "2026-07-03T09:07:58.4Z" },
 ]
 
 [[package]]
