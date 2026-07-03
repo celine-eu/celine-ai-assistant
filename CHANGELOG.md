@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.0 (2026-07-03)
+
+### Features
+
+- **community suggestion**: Community-first suggestion
+  ([`2272ce1`](https://github.com/celine-eu/celine-ai-assistant/commit/2272ce14b1fcc81a3344cc595c033ee1de4503c2))
+
+
 ## v1.4.2 (2026-07-02)
 
 ### Bug Fixes

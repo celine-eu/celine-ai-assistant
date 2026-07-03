@@ -1,6 +1,6 @@
 [project]
 name = "celine-chatbot-api"
-version = "1.4.2"
+version = "1.5.0"
 description = "FastAPI RAG chatbot using LlamaIndex + Qdrant + OpenAI"
 requires-python = ">=3.12,<3.14"
 readme = "README.md" 
