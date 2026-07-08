@@ -208,15 +208,12 @@ class DigitalTwinSkill(Skill):
                 "message": "No meter data available for this period.",
             })
 
-        interval_hours = 0.25
-        total_consumption_kw = sum(
-            _safe_float(item.to_dict().get("consumption_kw")) for item in items
+        consumption_kwh = sum(
+            _safe_float(item.to_dict().get("consumption_kwh")) for item in items
         )
-        total_production_kw = sum(
-            _safe_float(item.to_dict().get("production_kw")) for item in items
+        production_kwh = sum(
+            _safe_float(item.to_dict().get("production_kwh")) for item in items
         )
-        production_kwh = total_production_kw * interval_hours
-        consumption_kwh = total_consumption_kw * interval_hours
         self_consumption_kwh = min(production_kwh, consumption_kwh)
 
         return json.dumps({
@@ -274,13 +271,13 @@ class DigitalTwinSkill(Skill):
             })
 
         total_consumption = sum(
-            _safe_float(item.to_dict().get("total_consumption_kw")) for item in items
+            _safe_float(item.to_dict().get("total_consumption_kwh")) for item in items
         )
         total_production = sum(
-            _safe_float(item.to_dict().get("total_production_kw")) for item in items
+            _safe_float(item.to_dict().get("total_production_kwh")) for item in items
         )
         total_self_consumption = sum(
-            _safe_float(item.to_dict().get("self_consumption_kw")) for item in items
+            _safe_float(item.to_dict().get("self_consumption_kwh")) for item in items
         )
 
         return json.dumps({
