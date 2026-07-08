@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.5.1 (2026-07-08)
+
+### Bug Fixes
+
+- Correct column name
+  ([`98fef03`](https://github.com/celine-eu/celine-ai-assistant/commit/98fef03c23ff497a0b9d076c7a8f2543f101df22))
+
+### Chores
+
+- Update docs
+  ([`36dfbc0`](https://github.com/celine-eu/celine-ai-assistant/commit/36dfbc07602300aa5c498977f27097f278cb59f6))
+
+
 ## v1.5.0 (2026-07-03)
 
 ### Features
