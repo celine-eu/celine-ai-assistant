@@ -7,7 +7,7 @@ All settings are defined in `src/celine/assistant/settings.py` using `pydantic-s
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `OPENAI_API_KEY` | `str` | — | OpenAI API key (required) |
-| `OPENAI_CHAT_MODEL` | `str` | `gpt-4o-mini` | Chat completion model |
+| `OPENAI_CHAT_MODEL` | `str` | `gpt-5.4-mini` | Chat completion model |
 | `OPENAI_EMBED_MODEL` | `str` | `text-embedding-3-small` | Embedding model for indexing and retrieval |
 | `OPENAI_VISION_MODEL` | `str` | `gpt-4o-mini` | Vision model for image captioning |
 
@@ -60,16 +60,35 @@ All settings are defined in `src/celine/assistant/settings.py` using `pydantic-s
 | `MANIFEST_PATH` | `str` | `/app/data/manifest.json` | Manifest file for tracking ingested documents |
 | `DOCS_POLL_INTERVAL_SECONDS` | `int` | `60` | Polling interval for document changes |
 
+## Service URLs
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `DIGITAL_TWIN_API_URL` | `str?` | `http://172.17.0.1:8002` | Digital Twin API for energy, weather, and forecast skills |
+| `DATASETS_API_URL` | `str?` | `http://172.17.0.1:8001` | Dataset API (skill currently disabled — requires service tokens) |
+| `REC_REGISTRY_API_URL` | `str?` | `http://172.17.0.1:8004` | REC Registry API for membership, assets, and delivery points |
+| `FLEXIBILITY_API_URL` | `str?` | `http://172.17.0.1:8017` | Flexibility API for load-shift suggestions and gamification |
+
+## Chat Tuning
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `MAX_TOOL_ROUNDS` | `int` | `6` | Max agentic tool-calling rounds per chat request |
+| `MAX_TOOL_RESULT_CHARS` | `int` | `8000` | Max characters per tool result before truncation |
+| `CHAT_HISTORY_LIMIT` | `int` | `20` | Max prior messages included in the prompt |
+| `CHAT_WORD_LIMIT` | `int` | `25000` | Word budget for the conversation context window |
+| `CHAT_HOT_MESSAGES` | `int` | `6` | Number of recent messages sent without summarization |
+
 ## General
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `APP_ENV` | `str` | `prod` | Application environment |
 | `LOG_LEVEL` | `str` | `INFO` | Python log level |
-| `DIGITAL_TWIN_API_URL` | `str?` | — | Digital Twin API URL for dashboard context enrichment |
 
 ## Notes
 
 - `DATABASE_URL` must use the `asyncpg` driver for async SQLAlchemy compatibility.
 - When `OAUTH2_TRUST_HEADERS` is `true`, the JWT from `x-auth-request-access-token` header is trusted without JWKS verification (used behind oauth2_proxy).
 - Upload storage defaults to local disk. The `UPLOADS_URI` supports `file://` and `s3://` schemes.
+- Skills (Digital Twin, Weather, Flexibility, REC Registry) are registered per-request only when the matching service URL is configured and a user token is available.

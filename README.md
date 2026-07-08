@@ -30,7 +30,7 @@ task run
 | Variable | Default | Description |
 |---|---|---|
 | `OPENAI_API_KEY` | — | OpenAI API key (required) |
-| `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Chat completion model |
+| `OPENAI_CHAT_MODEL` | `gpt-5.4-mini` | Chat completion model |
 | `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model |
 | `OPENAI_VISION_MODEL` | `gpt-4o-mini` | Vision model for image captioning |
 | `QDRANT_URL` | `http://host.docker.internal:6333` | Qdrant vector DB URL |
@@ -42,9 +42,12 @@ task run
 | `OAUTH2_ISSUER` | — | OAuth2 issuer URL |
 | `OAUTH2_AUDIENCE` | `oauth2_proxy` | Expected JWT audience |
 | `ADMIN_GROUP` | `admins` | Group name for admin access |
-| `DIGITAL_TWIN_API_URL` | — | Digital Twin API for energy/weather/forecast skills |
-| `REC_REGISTRY_API_URL` | — | REC Registry API for membership/assets/delivery points |
-| `FLEXIBILITY_API_URL` | — | Flexibility API for load-shift suggestions and gamification |
+| `DIGITAL_TWIN_API_URL` | `http://172.17.0.1:8002` | Digital Twin API for energy/weather/forecast skills |
+| `DATASETS_API_URL` | `http://172.17.0.1:8001` | Dataset API (skill currently disabled) |
+| `REC_REGISTRY_API_URL` | `http://172.17.0.1:8004` | REC Registry API for membership/assets/delivery points |
+| `FLEXIBILITY_API_URL` | `http://172.17.0.1:8017` | Flexibility API for load-shift suggestions and gamification |
+| `MAX_TOOL_ROUNDS` | `6` | Max agentic tool-calling rounds per chat request |
+| `CHAT_HISTORY_LIMIT` | `20` | Max prior messages included in the prompt |
 | `TRAINING_MATERIALS_PATH` | `/workspace/repositories/celine-training-materials` | Local path for training materials |
 | `TRAINING_MATERIALS_REPO_URL` | — | Git URL for auto-cloning training materials |
 | `TRAINING_MATERIALS_REF` | `origin/main` | Git ref for training materials |
@@ -58,6 +61,7 @@ task run
 | Group | Endpoints |
 |---|---|
 | **chat** | `POST /chat` (SSE streaming with agentic tool calls) |
+| **ping** | `GET /ping` (authenticated liveness check) |
 | **suggestions** | `GET /suggestions` (localized prompt suggestions and tool labels) |
 | **conversations** | `GET /conversations`, `GET /conversations/{id}/messages`, `DELETE /conversations/{id}` |
 | **attachments** | `GET /attachments`, `GET /attachments/{id}/raw`, `DELETE /attachments/{id}` |

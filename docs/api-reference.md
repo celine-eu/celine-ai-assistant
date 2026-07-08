@@ -26,7 +26,7 @@ Stream a chat response via Server-Sent Events.
 **Behavior:**
 - Creates a new conversation if `conversation_id` is omitted.
 - Loads authorized attachments and retrieves relevant document chunks from Qdrant.
-- Enriches the prompt with dashboard context from Digital Twin if configured.
+- The LLM autonomously invokes registered skills (energy data, weather, flexibility, etc.) via tool calls.
 - Persists the full assistant reply once streaming completes.
 
 ---
@@ -100,3 +100,7 @@ Clone or refresh `celine-training-materials` inside the container, check out the
 ### `GET /health`
 
 Returns `{"status": "ok"}`. No authentication required.
+
+### `GET /ping`
+
+Returns `{"ok": true}`. Requires authentication — useful as a liveness check that validates the JWT.

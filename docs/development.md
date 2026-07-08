@@ -66,15 +66,26 @@ src/celine/assistant/
   ingest.py                    # File parsing and Qdrant ingestion
   history.py                   # Conversation and message persistence
   uploads.py                   # File upload storage and metadata
-  openai_stream.py             # SSE streaming wrapper
+  openai_stream.py             # SSE streaming with agentic tool-calling loop
   openai_vision.py             # Image captioning via vision model
-  dashboard_context.py         # Digital Twin context enrichment
+  document_processing.py       # MIME detection and text extraction for uploads
+  suggestions.py               # Localized prompt suggestions and tool labels
   training_materials.py        # Training materials indexing
   training_materials_sync.py   # Git sync for training materials
   site_docs.py                 # Documentation site content indexing
   qdrant_setup.py              # Qdrant collection initialization
   models.py                    # Pydantic request/response models
   logging_.py                  # Logging configuration
+  skills/
+    base.py                    # Skill base class
+    registry.py                # Skill registry (collects tools, dispatches calls)
+    factory.py                 # Builds per-request skill registry from settings
+    digital_twin.py            # Energy metrics, profile, assets (Digital Twin API)
+    weather.py                 # Current weather, forecast, alerts, energy forecast
+    flexibility.py             # Load-shift suggestions, gamification, commitments
+    rec_registry.py            # REC profile, community, assets, delivery points
+    documents.py               # Document search and attachment info (Qdrant)
+    datasets.py                # Dataset queries (currently disabled)
   db/
     engine.py                  # SQLAlchemy async engine setup
     models.py                  # ORM: Conversation, Message, Attachment
