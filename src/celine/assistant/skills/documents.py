@@ -102,8 +102,10 @@ class DocumentSkill(Skill):
         if on_progress:
             await on_progress(f"Searching documents for: {query}")
 
-        retriever = build_retriever(top_k)
-        nodes = await asyncio.to_thread(retrieve, retriever, query, top_k)
+        retriever = build_retriever(top_k, user_id=self._user_id)
+        nodes = await asyncio.to_thread(
+            retrieve, retriever, query, top_k, user_id=self._user_id
+        )
         results = [node_to_source(n) for n in nodes]
 
         return json.dumps({

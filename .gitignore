@@ -2,9 +2,17 @@ data
 .env
 
 __pycache__
+.pytest_cache
 .venv
 # Dumpster output
 .dumpster
 *.egg-info
 
 skaffold
+
+# Execution state: transient, and the plan is what survives
+.agents/work/
+
+# Notes under .agents/ are not published from this repository.
+.agents/*
+!.agents/README.md

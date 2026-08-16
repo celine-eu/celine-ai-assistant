@@ -147,6 +147,10 @@ def _public_location(rel_path: str) -> str:
         base = path.parent.as_posix()
     else:
         base = path.with_suffix("").as_posix()
+    # `Path("index.md").parent` is `.`, which would publish the site root as `./` and
+    # its citation as `training-materials://.//`.
+    if base == ".":
+        base = ""
     return base + "/"
 
 

@@ -163,7 +163,8 @@ async def extract_text(
         # Scanned PDF fallback: render pages and describe via vision
         log.info(
             "pdf_text_too_short_falling_back_to_vision",
-            extra={"filename": filename, "text_len": len(text.strip())},
+            # `file`, not `filename` — see REQ-0034.
+            extra={"file": filename, "text_len": len(text.strip())},
         )
         page_images = await asyncio.to_thread(pdf_to_images, file_bytes)
         descriptions: list[str] = []

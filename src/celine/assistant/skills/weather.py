@@ -372,25 +372,28 @@ class WeatherSkill(Skill):
         upcoming_surplus.sort(key=lambda h: h["net_exchange_kwh"], reverse=True)
         best_upcoming = upcoming_surplus[:3]
 
+        # Renamed here, so read the suggestion off *this* list and not off the raw rows
+        # it was built from — those are still keyed `net_exchange_kwh`.
+        best_upcoming_hours = [
+            {"ts": h["ts"], "surplus_kwh": h["net_exchange_kwh"]} for h in best_upcoming
+        ]
+
         result: dict[str, Any] = {
             "current_time_utc": now_iso,
             "community_net_exchange": community_net_exchange,
             "user_consumption_forecast": user_consumption,
-            "best_upcoming_hours": [
-                {"ts": h["ts"], "surplus_kwh": h["net_exchange_kwh"]}
-                for h in best_upcoming
-            ],
+            "best_upcoming_hours": best_upcoming_hours,
         }
-        if best_upcoming:
-            top = best_upcoming[0]
+        if best_upcoming_hours:
+            top = best_upcoming_hours[0]
             result["suggestion"] = (
                 f"The best upcoming hour to run appliances is {top['ts']} "
                 f"with {top['surplus_kwh']:.2f} kWh of solar surplus. "
                 "Suggest this specific time to the user rather than a wide window."
             )
-        elif upcoming_surplus or not any(
-            h["net_exchange_kwh"] > 0 for h in community_net_exchange
-        ):
+        else:
+            # Every remaining case is the same advice: whether the day's surplus has
+            # already passed or there was never any, there is nothing left to shift to.
             result["suggestion"] = (
                 "No solar surplus expected in the upcoming hours. "
                 "There is no optimal time to shift consumption right now."

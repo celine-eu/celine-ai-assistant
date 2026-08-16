@@ -112,6 +112,27 @@ def get_tool_labels(lang: str = "en") -> dict[str, str]:
 
 
 SUGGESTIONS: list[dict[str, dict[str, str]]] = [
+    # The `documents` skill is the only one that needs no upstream and no forwarded
+    # token, so at least one suggestion must name it — otherwise a deployment that
+    # forwards identity headers but not the access token opens with no prompts at all.
+    {
+        "text": {
+            "en": "What can you help me with?",
+            "it": "Su cosa puoi aiutarmi?",
+            "es": "¿En qué puedes ayudarme?",
+        },
+        "icon": {"en": "help-circle", "it": "help-circle", "es": "help-circle"},
+        "skill": {"en": "documents", "it": "documents", "es": "documents"},
+    },
+    {
+        "text": {
+            "en": "Explain how an energy community works",
+            "it": "Spiegami come funziona una comunità energetica",
+            "es": "Explícame cómo funciona una comunidad energética",
+        },
+        "icon": {"en": "book-open", "it": "book-open", "es": "book-open"},
+        "skill": {"en": "documents", "it": "documents", "es": "documents"},
+    },
     {
         "text": {
             "en": "How much energy did I produce today?",

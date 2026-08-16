@@ -237,20 +237,24 @@ async def get_user_identity(request: Request) -> UserIdentity:
     token = extract_access_token(request)
 
     if token:
+        # A token that is present and does not verify is a request to refuse, not one to
+        # downgrade. Falling back to the trusted headers here made an expired or forged
+        # token indistinguishable from no token at all — and with OAUTH2_TRUST_HEADERS
+        # on, that is whatever identity the caller cared to assert.
         try:
             jwks_url = await _jwks_url_from_token(token)
             jwks = await _get_jwks(jwks_url)
             claims = _verify_jwt(token, jwks)
-            user_id = _best_effort_user_from_claims(claims) or "unknown"
-            return UserIdentity(
-                user_id=user_id, raw={"source": "jwt-verified", "claims": claims}
-            )
         except Exception as e:
-            hdr_user = _trusted_identity_from_headers(request)
-            if hdr_user:
-                return hdr_user
             log.warning("jwt_verification_failed: %s", e)
-            raise HTTPException(status_code=401, detail=f"JWT verification failed: {e}") from e
+            raise HTTPException(
+                status_code=401, detail=f"JWT verification failed: {e}"
+            ) from e
+
+        user_id = _best_effort_user_from_claims(claims) or "unknown"
+        return UserIdentity(
+            user_id=user_id, raw={"source": "jwt-verified", "claims": claims}
+        )
 
     hdr_user = _trusted_identity_from_headers(request)
     if hdr_user:

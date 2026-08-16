@@ -164,10 +164,15 @@ async def stream_chat(
         user_message,
     )
 
+    # At least one turn stays hot. `[:-0]` is empty and `[-0:]` is everything, so a
+    # configured zero would summarise nothing and drop nothing — the opposite of what
+    # the setting reads like it does.
+    hot_messages = max(1, settings.chat_hot_messages)
+
     wc = _word_count(context_messages)
-    if wc > settings.chat_word_limit and len(context_messages) > settings.chat_hot_messages:
-        older = context_messages[: -settings.chat_hot_messages]
-        hot = context_messages[-settings.chat_hot_messages :]
+    if wc > settings.chat_word_limit and len(context_messages) > hot_messages:
+        older = context_messages[:-hot_messages]
+        hot = context_messages[-hot_messages:]
         summary = await _summarize_messages(client, older)
         context_messages = [
             {"role": "user", "content": f"[Summary of earlier conversation]\n\n{summary}"},
@@ -196,9 +201,14 @@ async def _agentic_loop(
     max_result_chars = settings.max_tool_result_chars
 
     for _round in range(max_rounds):
+        # The last round is offered no tools, so the model has to answer in prose.
+        # Without it, a model that keeps calling tools until the budget runs out ends
+        # the stream with no answer and no error — a turn that produced nothing.
+        answer_only = max_rounds > 1 and _round == max_rounds - 1
+
         log.info(
-            "agentic_round_%d: %d messages",
-            _round, len(api_messages),
+            "agentic_round_%d: %d messages%s",
+            _round, len(api_messages), " (answer only)" if answer_only else "",
         )
         t0 = time.monotonic()
 
@@ -208,7 +218,7 @@ async def _agentic_loop(
             "temperature": 0.2,
             "stream": True,
         }
-        if tools:
+        if tools and not answer_only:
             create_kwargs["tools"] = tools
             create_kwargs["parallel_tool_calls"] = False
 

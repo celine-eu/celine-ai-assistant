@@ -24,6 +24,7 @@ task run
 
 | Command | Description |
 |---|---|
+| `task test` | Run the test suite — needs no database, Qdrant, LLM or network |
 | `task run` | Start dev server on port 8012 with reload |
 | `task debug` | Start with debugger (port 48012) |
 | `task setup` | Install dependencies with uv |

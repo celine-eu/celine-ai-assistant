@@ -1,0 +1,161 @@
+### Test celine-ai-assistant.
+#
+# Two jobs, because the suite has two honesty problems and they need different answers.
+#
+# `pytest` runs everything with no service at all — that is ADR-0001, and running it on
+# every supported Python is what stops a version-gated import from reaching a release.
+#
+# `pytest-postgres` re-runs `tests/db` against the real dialect. Those tests default to
+# SQLite so `task test` starts nothing, but production is PostgreSQL and the two
+# disagree about enough — ordering of ties, integer widths, `ON DELETE CASCADE` — that
+# passing on SQLite alone is a claim nobody checked. See ADR-0007.
+#
+# The matrix is written out rather than read from classifiers (as `../ontologies` does)
+# because this package declares none; `requires-python = ">=3.12,<3.14"` is the range
+# these two entries make true.
+
+name: Test celine-ai-assistant
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/test.yaml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/test.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: 1
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: Test on ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: uv sync --python ${{ matrix.python-version }}
+
+      # A version-gated import can sit in a module no test touches. The suite fakes its
+      # way past most of this package's heavier dependencies, so importing every module
+      # is the only thing that proves they all load at all.
+      - name: Import every submodule
+        run: |
+          uv run --python ${{ matrix.python-version }} python - <<'EOF'
+          import importlib, pkgutil, sys
+          import celine.assistant as pkg
+
+          names = ["celine.assistant"] + [
+              m.name for m in pkgutil.walk_packages(pkg.__path__, "celine.assistant.")
+          ]
+          failed = []
+          for name in names:
+              try:
+                  importlib.import_module(name)
+              except Exception as exc:
+                  failed.append(f"{name}: {type(exc).__name__}: {exc}")
+
+          print(f"imported {len(names) - len(failed)}/{len(names)} submodules")
+          for f in failed:
+              print("::error::" + f)
+          sys.exit(1 if failed else 0)
+          EOF
+
+      - name: Run the suite
+        run: uv run --python ${{ matrix.python-version }} pytest
+
+      # A `@verifies` tag naming a requirement that does not exist, or a requirement no
+      # test names, is the failure mode of a hand-kept trace matrix — and the reason
+      # ADR-0006 says the mapping is generated. Until `python -m harness` is available
+      # here, this is the projection.
+      - name: Check the requirement trace
+        if: matrix.python-version == '3.13'
+        run: |
+          declared=$(grep -rhoE 'REQ-[0-9]{4}' docs/specifications/ | sort -u)
+          verified=$(grep -rhoE '@verifies REQ-[0-9]{4}' tests/ | grep -oE 'REQ-[0-9]{4}' | sort -u)
+
+          untested=$(comm -23 <(echo "$declared") <(echo "$verified"))
+          unknown=$(comm -13 <(echo "$declared") <(echo "$verified"))
+
+          if [ -n "$untested" ]; then
+            echo "::error::requirements with no test declaring them: $(echo $untested)"
+          fi
+          if [ -n "$unknown" ]; then
+            echo "::error::tests verifying requirements that are not specified: $(echo $unknown)"
+          fi
+          [ -z "$untested" ] && [ -z "$unknown" ]
+
+  pytest-postgres:
+    name: Store against PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_assistant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: uv sync
+
+      - name: Run the store suite against PostgreSQL
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_assistant
+        run: uv run pytest tests/db
+
+      # The store's tests build the schema from the models with `create_all`, so they
+      # say nothing about the migrations. `upgrade head` proves they apply from empty;
+      # `check` proves they arrive at the schema the models describe — which is the half
+      # that silently rots, because a model edited without a revision only fails in
+      # production.
+      - name: Apply the migrations from empty
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_assistant
+        run: uv run alembic upgrade head
+
+      - name: Check the models and the migrations agree
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_assistant
+        run: uv run alembic check

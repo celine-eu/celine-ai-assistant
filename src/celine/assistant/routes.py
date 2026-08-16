@@ -14,7 +14,14 @@ from .models import (
     HealthResponse,
     TrainingMaterialsSyncRequest,
 )
-from .rag import build_retriever, retrieve, node_to_source
+from .rag import (
+    attachment_doc_id,
+    build_retriever,
+    delete_document,
+    node_to_source,
+    retrieve,
+)
+from .history import HistoryStore, get_history_store
 from .openai_stream import stream_chat
 from .uploads import StoredFile, store_upload, open_upload_stream, delete_upload
 from .settings import settings
@@ -41,13 +48,13 @@ def _is_public_source(source: dict) -> bool:
 
 
 async def _load_authorized_attachments(
-    request: Request,
+    history_store: HistoryStore,
     user: UserIdentity,
     attachment_ids: list[str],
 ) -> list[dict]:
     out: list[dict] = []
     for att_id in attachment_ids:
-        att = await request.app.state.history_store.get_attachment_any(att_id)
+        att = await history_store.get_attachment_any(att_id)
         if not att:
             continue
 
@@ -113,14 +120,29 @@ async def ping(
     return {"ok": True}
 
 
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
 async def _read_upload_or_413(file: UploadFile) -> bytes:
-    data = await file.read()
+    """Read the body in chunks and stop at the limit.
+
+    Reading it whole and measuring afterwards would make the limit bound what is
+    *stored* rather than what a caller can make this process allocate.
+    """
     max_bytes = max(1, settings.max_upload_mb) * 1024 * 1024
-    if len(data) > max_bytes:
-        raise HTTPException(
-            status_code=413, detail=f"File too large (max {settings.max_upload_mb}MB)"
-        )
-    return data
+    chunks: list[bytes] = []
+    total = 0
+
+    while chunk := await file.read(_UPLOAD_CHUNK_BYTES):
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large (max {settings.max_upload_mb}MB)",
+            )
+        chunks.append(chunk)
+
+    return b"".join(chunks)
 
 
 def _is_image(filename: str, content_type: str | None) -> bool:
@@ -132,7 +154,7 @@ def _is_image(filename: str, content_type: str | None) -> bool:
 
 
 async def _process_upload(
-    request: Request,
+    history_store: HistoryStore,
     data: bytes,
     stored: StoredFile,
     scope: str,
@@ -163,9 +185,11 @@ async def _process_upload(
         try:
             extracted_text = await extract_text(data, effective_mime, stored.filename)
         except Exception:
-            log.warning("extract_text_failed", extra={"filename": stored.filename})
+            # `file`, not `filename`: `filename` is a LogRecord attribute and logging
+            # raises rather than overwrite one — from inside this except block.
+            log.warning("extract_text_failed", extra={"file": stored.filename})
 
-    att_id = await request.app.state.history_store.record_attachment(
+    att_id = await history_store.record_attachment(
         scope=scope,
         owner_user_id=owner_user_id,
         uri=stored.uri,
@@ -191,10 +215,13 @@ async def _process_upload(
                 "source_uri": stored.uri,
                 "filename": stored.filename,
                 "content_type": stored.content_type,
+                # Read back by `rag.visibility_filter` and `rag.is_visible_to`. Writing
+                # them and not reading them is what made every upload world-readable.
                 "scope": scope,
                 "owner_user_id": owner_user_id,
                 "kind": kind,
             },
+            doc_id=attachment_doc_id(att_id),
         )
 
     return {
@@ -211,9 +238,9 @@ async def _process_upload(
 
 @router.post("/upload")
 async def upload_user(
-    request: Request,
     file: UploadFile = File(...),
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
 ):
     data = await _read_upload_or_413(file)
 
@@ -226,7 +253,7 @@ async def upload_user(
     )
 
     return await _process_upload(
-        request=request,
+        history_store=history_store,
         data=data,
         stored=stored,
         scope="user",
@@ -236,9 +263,9 @@ async def upload_user(
 
 @router.post("/admin/uploads")
 async def upload_system(
-    request: Request,
     file: UploadFile = File(...),
     admin: UserIdentity = Depends(require_admin),
+    history_store: HistoryStore = Depends(get_history_store),
 ):
     data = await _read_upload_or_413(file)
 
@@ -251,7 +278,7 @@ async def upload_system(
     )
 
     return await _process_upload(
-        request=request,
+        history_store=history_store,
         data=data,
         stored=stored,
         scope="system",
@@ -275,20 +302,20 @@ async def sync_training_materials_route(
 
 @router.get("/attachments")
 async def list_attachments(
-    request: Request,
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
     limit: int = 200,
 ):
-    items = await request.app.state.history_store.list_attachments_for_user(
+    items = await history_store.list_attachments_for_user(
         user.user_id, limit=limit
     )
     return {"items": items, "limit": limit}
 
 
 async def _get_attachment_authorized(
-    request: Request, user: UserIdentity, attachment_id: str
+    history_store: HistoryStore, user: UserIdentity, attachment_id: str
 ):
-    att = await request.app.state.history_store.get_attachment_any(attachment_id)
+    att = await history_store.get_attachment_any(attachment_id)
     if not att:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
@@ -306,10 +333,10 @@ async def _get_attachment_authorized(
 @router.get("/attachments/{attachment_id}/raw")
 async def get_attachment_raw(
     attachment_id: str,
-    request: Request,
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
 ):
-    att = await _get_attachment_authorized(request, user, attachment_id)
+    att = await _get_attachment_authorized(history_store, user, attachment_id)
 
     ct = att.get("content_type") or "application/octet-stream"
     headers = {"Content-Disposition": f'inline; filename="{att.get("filename")}"'}
@@ -324,10 +351,10 @@ async def get_attachment_raw(
 @router.delete("/attachments/{attachment_id}")
 async def delete_attachment(
     attachment_id: str,
-    request: Request,
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
 ):
-    att = await request.app.state.history_store.get_attachment_any(attachment_id)
+    att = await history_store.get_attachment_any(attachment_id)
     if not att:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
@@ -341,19 +368,27 @@ async def delete_attachment(
     ):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    await request.app.state.history_store.delete_attachment_any(attachment_id)
+    await history_store.delete_attachment_any(attachment_id)
 
     try:
         await delete_upload(att["path"])
     except Exception:
         log.exception("attachments_delete_blob_failed", extra={"path": att.get("path")})
 
+    # The row and the blob are not the whole attachment: `_process_upload` also wrote it
+    # into the vector store, and content left retrievable has not been deleted.
+    try:
+        await delete_document(attachment_doc_id(attachment_id))
+    except Exception:
+        log.exception(
+            "attachments_delete_index_failed", extra={"attachment": attachment_id}
+        )
+
     return {"status": "deleted", "attachment_id": attachment_id}
 
 
 @router.get("/user")
 async def get_user(
-    request: Request,
     user: UserIdentity = Depends(get_user_identity),
 ) -> UserInfo:
     return UserInfo.from_identity(user)
@@ -363,6 +398,7 @@ async def get_user(
 async def suggestions(
     request: Request,
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
     lang: str = "en",
 ):
     raw_token = extract_access_token(request)
@@ -370,7 +406,7 @@ async def suggestions(
         user_token=raw_token,
         user_id=user.user_id,
         settings=settings,
-        history_store=request.app.state.history_store,
+        history_store=history_store,
     )
     available = set(registry.skills.keys())
     return {
@@ -384,9 +420,9 @@ async def chat(
     req: ChatRequest,
     request: Request,
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
 ):
     user_message = req.message.strip()
-    history_store = request.app.state.history_store
 
     conv = await history_store.get_or_create_conversation(
         user.user_id, req.conversation_id
@@ -407,13 +443,17 @@ async def chat(
         history_store=history_store,
     )
 
-    attached = await _load_authorized_attachments(request, user, req.attachment_ids)
+    attached = await _load_authorized_attachments(
+        history_store, user, req.attachment_ids
+    )
     attachment_block = _attachment_context_block(attached) if attached else None
 
     sources: list[dict] = []
     if user_message:
-        retriever = build_retriever(req.top_k)
-        nodes = await asyncio.to_thread(retrieve, retriever, user_message, req.top_k)
+        retriever = build_retriever(req.top_k, user_id=user.user_id)
+        nodes = await asyncio.to_thread(
+            retrieve, retriever, user_message, req.top_k, user_id=user.user_id
+        )
         sources = [node_to_source(n) for n in nodes]
     public_sources = [source for source in sources if _is_public_source(source)]
 
@@ -482,8 +522,8 @@ async def chat(
 
 @router.get("/conversations")
 async def list_conversations(
-    request: Request,
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
     limit: int = 50,
     offset: int = 0,
 ):
@@ -491,7 +531,7 @@ async def list_conversations(
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
 
-    items = await request.app.state.history_store.list_conversations(
+    items = await history_store.list_conversations(
         user.user_id, limit=limit, offset=offset
     )
     return {"items": items, "limit": limit, "offset": offset}
@@ -500,38 +540,18 @@ async def list_conversations(
 @router.get("/conversations/{conversation_id}/messages")
 async def conversation_messages(
     conversation_id: str,
-    request: Request,
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
     limit: int = 200,
 ):
     limit = max(1, min(int(limit), 500))
 
-    # Ensure conversation exists for this user; otherwise 404
-    convs = await request.app.state.history_store.list_conversations(
-        user.user_id, limit=1, offset=0
-    )
-    # Cheap existence check: ask store for messages; if no conversation row exists, list_messages just returns empty.
-    # We want 404 if conversation doesn't belong to user.
-    #
-    # Implement strict ownership check by attempting a get_or_create with provided id:
-    # If it doesn't exist for this user, store will create it (bad).
-    # So we instead check with list_conversations using a direct query isn't available.
-    #
-    # Therefore: add a lightweight existence check via delete_conversation logic approach:
-    # We'll query messages; if empty we still can't know if conversation exists. So use the DB-backed check:
-    # HistoryStore currently doesn't expose "conversation exists" — so we treat "no messages + not in list" as 404
-    # by scanning recent conversations (bounded) OR implement a new store method later.
-
-    # Bounded scan: check existence in the first 200 conversations (enough for UI usage)
-    exists = False
-    page = await request.app.state.history_store.list_conversations(
-        user.user_id, limit=200, offset=0
-    )
-    exists = any(c.get("conversation_id") == conversation_id for c in page)
-    if not exists:
+    # Ownership is checked before the messages are read: an empty message list is
+    # indistinguishable from a conversation that is not this caller's.
+    if not await history_store.conversation_exists(user.user_id, conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    messages = await request.app.state.history_store.list_messages(
+    messages = await history_store.list_messages(
         user.user_id, conversation_id, limit=limit
     )
     return {"messages": messages, "limit": limit}
@@ -540,10 +560,10 @@ async def conversation_messages(
 @router.delete("/conversations/{conversation_id}")
 async def delete_conversation(
     conversation_id: str,
-    request: Request,
     user: UserIdentity = Depends(get_user_identity),
+    history_store: HistoryStore = Depends(get_history_store),
 ):
-    ok = await request.app.state.history_store.delete_conversation(
+    ok = await history_store.delete_conversation(
         user.user_id, conversation_id
     )
     if not ok:

@@ -1,7 +1,7 @@
 """Chat history persistence backed by SQLAlchemy (async).
 
-Drop-in replacement for the old sqlite3-based HistoryStore.
-The public async API is identical so no routes need to change.
+Conversations, messages and attachment records. The store is instantiated once in the
+application lifespan and reached from a route through `get_history_store`.
 """
 
 from __future__ import annotations
@@ -11,8 +11,9 @@ import time
 import uuid
 from typing import Any
 
-from sqlalchemy import delete, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Request
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .db import AsyncSessionLocal, Attachment, Conversation, Message
 
@@ -22,14 +23,22 @@ log = logging.getLogger(__name__)
 class HistoryStore:
     """Async history store built on SQLAlchemy.
 
-    Instantiate once at application startup (no path argument needed;
-    the engine is configured centrally in db/engine.py)::
+    Instantiate once at application startup::
 
         store = HistoryStore()
 
-    All public methods are async and safe for concurrent use — SQLAlchemy's
-    async session handles connection pooling internally.
+    All public methods are async and safe for concurrent use — SQLAlchemy's async
+    session handles connection pooling internally.
+
+    `session_factory` defaults to the application's, configured at import in
+    `db/engine.py`. Passing one is how a test points the store at its own database; it
+    is the only seam, because every method opens its own session and none takes one.
     """
+
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession] | None = None
+    ) -> None:
+        self._session = session_factory or AsyncSessionLocal
 
     # ------------------------------------------------------------------
     # Conversations
@@ -40,7 +49,7 @@ class HistoryStore:
         user_id: str,
         conversation_id: str | None = None,
     ) -> Conversation:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             async with session.begin():
                 if conversation_id:
                     result = await session.execute(
@@ -67,7 +76,7 @@ class HistoryStore:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             # last_message_at subquery
             last_msg_at = (
                 select(func.max(Message.created_at))
@@ -117,8 +126,23 @@ class HistoryStore:
                 for r in rows
             ]
 
+    async def conversation_exists(self, user_id: str, conversation_id: str) -> bool:
+        """Whether this user owns this conversation.
+
+        One indexed lookup. Without it the route had to page through the caller's most
+        recent conversations and call anything past the end missing.
+        """
+        async with self._session() as session:
+            result = await session.execute(
+                select(Conversation.conversation_id).where(
+                    Conversation.conversation_id == conversation_id,
+                    Conversation.user_id == user_id,
+                )
+            )
+            return result.scalar_one_or_none() is not None
+
     async def delete_conversation(self, user_id: str, conversation_id: str) -> bool:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             async with session.begin():
                 result = await session.execute(
                     select(Conversation).where(
@@ -143,7 +167,7 @@ class HistoryStore:
         role: str,
         content: str,
     ) -> str:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             async with session.begin():
                 msg = Message(
                     id=str(uuid.uuid4()),
@@ -162,7 +186,7 @@ class HistoryStore:
         conversation_id: str,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             stmt = (
                 select(Message)
                 .where(
@@ -201,7 +225,7 @@ class HistoryStore:
         caption: str | None = None,
         ocr_text: str | None = None,
     ) -> str:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             async with session.begin():
                 att = Attachment(
                     id=str(uuid.uuid4()),
@@ -222,7 +246,7 @@ class HistoryStore:
     async def list_attachments_for_user(
         self, user_id: str, limit: int = 200
     ) -> list[dict[str, Any]]:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             stmt = (
                 select(Attachment)
                 .where(
@@ -239,7 +263,7 @@ class HistoryStore:
             return [_att_dict(a) for a in rows]
 
     async def get_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             result = await session.execute(
                 select(Attachment).where(Attachment.id == attachment_id)
             )
@@ -247,7 +271,7 @@ class HistoryStore:
             return _att_dict(att) if att else None
 
     async def delete_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
-        async with AsyncSessionLocal() as session:
+        async with self._session() as session:
             async with session.begin():
                 result = await session.execute(
                     select(Attachment).where(Attachment.id == attachment_id)
@@ -258,6 +282,18 @@ class HistoryStore:
                 data = _att_dict(att)
                 await session.delete(att)
             return data
+
+
+def get_history_store(request: Request) -> HistoryStore:
+    """The store, as a dependency.
+
+    The instance still lives on `app.state`, set by the lifespan — this is the seam that
+    lets a test replace it with `app.dependency_overrides[get_history_store]`, the same
+    mechanism `../dataset-api` uses for its sessions. Routes declare it rather than
+    reaching through `request.app.state`, so what a route touches is visible in its
+    signature.
+    """
+    return request.app.state.history_store
 
 
 def _att_dict(att: Attachment) -> dict[str, Any]:

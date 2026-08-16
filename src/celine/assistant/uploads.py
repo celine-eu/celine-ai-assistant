@@ -45,12 +45,28 @@ def _sanitize(name: str) -> str:
     )
 
 
+def _sanitize_owner(owner_user_id: str) -> str:
+    """An owner id, made safe to use as a directory name.
+
+    The id is a JWT claim or — with `OAUTH2_TRUST_HEADERS` on — a request header, so it
+    is caller-controlled and reaches this function unfiltered. `@`, `.` and `-` are kept
+    because an id is very often an email address and rewriting those would move every
+    existing user's directory.
+    """
+    kept = "".join(
+        ch for ch in owner_user_id.strip() if ch.isalnum() or ch in ("_", "-", ".", "+", "@")
+    )[:200]
+    if kept in ("", ".", ".."):
+        raise ValueError(f"owner_user_id is not usable as a path: {owner_user_id!r}")
+    return kept
+
+
 def _subdir(scope: str, owner_user_id: str | None, stamp: int) -> str:
     if scope == "system":
         return f"_system/{stamp}"
     if not owner_user_id:
         raise ValueError("owner_user_id required for user scope")
-    return f"{owner_user_id}/{stamp}"
+    return f"{_sanitize_owner(owner_user_id)}/{stamp}"
 
 
 async def store_upload(

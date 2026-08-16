@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -188,39 +189,58 @@ class DigitalTwinSkill(Skill):
 
         await self._notify(on_progress, f"Querying meter data for last {hours}h...")
         log.info(
-            "dt_fetch_values: participant=%s fetcher=meters_data device=%s start=%s end=%s",
-            self._user_id, device_ids[0], start.isoformat(), now.isoformat(),
+            "dt_fetch_values: participant=%s fetcher=meters_data devices=%s start=%s end=%s",
+            self._user_id, device_ids, start.isoformat(), now.isoformat(),
         )
-        meters_response = await self._dt.participants.fetch_values(
-            participant_id=self._user_id,
-            fetcher_id="meters_data",
-            payload={
-                "device_id": device_ids[0],
-                "start": start.isoformat(),
-                "end": now.isoformat(),
-            },
+
+        # Every meter, not the first. A member with a second meter was previously told
+        # one meter's readings as though they were their total, with nothing in the
+        # response to say so.
+        responses = await asyncio.gather(
+            *(
+                self._dt.participants.fetch_values(
+                    participant_id=self._user_id,
+                    fetcher_id="meters_data",
+                    payload={
+                        "device_id": device_id,
+                        "start": start.isoformat(),
+                        "end": now.isoformat(),
+                    },
+                )
+                for device_id in device_ids
+            )
         )
-        items = getattr(meters_response, "items", []) or []
+
+        items = [
+            item
+            for response in responses
+            for item in (getattr(response, "items", []) or [])
+        ]
         if not items:
             return json.dumps({
                 "window_hours": hours,
-                "device_id": device_ids[0],
+                "device_ids": device_ids,
                 "message": "No meter data available for this period.",
             })
 
-        consumption_kwh = sum(
-            _safe_float(item.to_dict().get("consumption_kwh")) for item in items
-        )
-        production_kwh = sum(
-            _safe_float(item.to_dict().get("production_kwh")) for item in items
-        )
-        self_consumption_kwh = min(production_kwh, consumption_kwh)
+        consumption_kwh = 0.0
+        production_kwh = 0.0
+        self_consumption_kwh = 0.0
+        for item in items:
+            row = item.to_dict()
+            consumed = _safe_float(row.get("consumption_kwh"))
+            produced = _safe_float(row.get("production_kwh"))
+            consumption_kwh += consumed
+            production_kwh += produced
+            # Per interval. Taking the minimum of the window-wide totals instead would
+            # credit midday solar against evening load and read high.
+            self_consumption_kwh += min(produced, consumed)
 
         return json.dumps({
             "window_hours": hours,
             "window_start_utc": start.isoformat(),
             "window_end_utc": now.isoformat(),
-            "device_id": device_ids[0],
+            "device_ids": device_ids,
             "production_kwh": round(production_kwh, 2),
             "consumption_kwh": round(consumption_kwh, 2),
             "self_consumption_kwh": round(self_consumption_kwh, 2),

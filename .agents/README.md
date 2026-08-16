@@ -1,0 +1,286 @@
+<!-- harness-standard v4 — issued by the agent harness. Do not edit; replace it with `python -m harness upgrade <target>`. -->
+
+# The knowledge contract
+
+Everything an agent needs in order to work here, and everything it produces while working
+— durable knowledge, repeatable procedures, plans and execution state — lives in this
+repository's **companion**: a parallel directory outside this tree.
+
+**The companion is the only source of truth.** Nothing in it is copied back here, and a
+copy that appears here is a defect rather than a convenience.
+
+`AGENTS.md` routes and states constraints. **This document is the rulebook** —
+everything normative about how work is recorded. Where the two disagree, this one wins.
+A component `AGENTS.md` states only its deltas; anything it restates from the root is a
+defect rather than an override (REQ-0403).
+
+---
+
+## Finding the companion
+
+Its location differs on every machine, so it is never committed. It is declared in
+`.agents/references.local.md`, which is gitignored:
+
+```text
+- AGENTS_COMPANION: <path to this repository's companion>
+```
+
+**Read that file first.** Without the companion you have this contract and the code,
+which is the shape of the knowledge and none of it.
+
+If the declaration is missing, ask for it. **Do not write agent material into this
+repository instead.** A trap recorded in a docstring, a README or a code comment because
+the companion was not to hand is the failure this arrangement exists to prevent, and it
+is how the arrangement quietly undoes itself.
+
+---
+
+## What lives where
+
+| Artefact | Home | Committed here |
+|---|---|---|
+| durable knowledge | companion `knowledge/` | no |
+| repeatable procedures | companion `playbooks/` | no |
+| intended changes and the decisions taken | companion `plans/<slug>.md` | no |
+| progress, blockers, what was verified | companion `work/<slug>/` | no |
+| this contract | `AGENTS.md`, `.agents/README.md` | yes |
+| harness configuration | `.agents/harness.toml` | yes |
+| the register of values that must not be committed | `.agents/references.md` | yes |
+| the values themselves, and the companion's location | `.agents/references.local.md` | **no** |
+| requirement-to-verification mapping | the trace directory, or the tool named in `.agents/harness.toml` | — |
+| **defects** | the issue tracker, never a file | — |
+| why a technical choice was made | `docs/decisions/` | yes |
+
+**`.agents/` here holds those four files and nothing else.** The set is closed on purpose
+(REQ-0003): a new entry is a change to this document, which makes it deliberate and
+reviewable. Where a repository genuinely needs another, it declares it under `[agents]
+extra_dirs` in `.agents/harness.toml`.
+
+---
+
+## knowledge/
+
+Durable facts that are **true of the code and not obvious from reading it**: invariants,
+hidden assumptions, the reason the obvious change is the wrong one.
+
+Each entry names the trap, not the feature. Knowledge must stay useful after the current
+work has finished; if a fact stops being true, delete it in the same change. A stale fact
+here is worse than a missing one, because it is written as settled.
+
+What does *not* go here: behaviour the published documentation already describes,
+anything a test already asserts, and anything that will be untrue next week.
+
+---
+
+## playbooks/
+
+Repeatable procedures — how work of a given kind is performed here.
+
+A playbook exists the first time a procedure is performed twice. It states the steps, the
+commands, what to check afterwards, and the traps. **It links to the published
+documentation rather than restating it**; two descriptions of one procedure is the
+failure this rule prevents.
+
+---
+
+## plans/
+
+Intended changes and the decisions taken while making them.
+
+A plan is required before any non-trivial implementation. Every plan carries YAML front
+matter (REQ-0104):
+
+```yaml
+---
+slug: auth-refactor          # equals the filename without .md (REQ-0105)
+created: 2026-01-31          # ISO-8601
+status: proposed             # proposed | in-progress | complete | superseded
+requirements: REQ-0007       # optional: the requirements it serves (REQ-0501)
+requires-new-spec: false     # optional: if true, the plan may not execute (REQ-0502)
+---
+```
+
+A plan that needs a requirement nobody has written **stays `proposed`** until that
+conversation has happened. Open questions are addressed in the plan definition phase, by
+asking directly.
+
+Plans record **decisions and deviations, and why**. They do not record progress
+(REQ-0106).
+
+---
+
+## work/
+
+Active execution state, one directory per plan:
+
+```text
+work/
+    auth-refactor/
+        status.md      the current position — required (REQ-0103)
+        notes.md       discoveries still being worked out
+```
+
+It holds progress, checklists, what was verified and how, blockers, and owed work.
+
+---
+
+## Plans and work are one unit
+
+A plan and its work directory share a slug and are created together:
+
+```text
+plans/auth-refactor.md   <->   work/auth-refactor/{status.md,notes.md}
+```
+
+**Create `work/<slug>/status.md` before the first change of a plan phase** (REQ-0102),
+not after it. A plan being executed with no work directory is the error to catch: its
+status has nothing to derive from, and the execution record is being written somewhere it
+does not belong — usually into the plan itself.
+
+The split is *survives* versus *does not*:
+
+| Goes in `work/<slug>/` | Goes in the plan |
+|---|---|
+| progress, checklists, what was verified and how | decisions taken, and why |
+| blockers, owed work, open costs | deviations from the plan, and why |
+| counts and measurements taken during execution | anything a future reader must not lose |
+| the current position | the phase status, derived from `status.md` |
+
+- Update `status.md` **in the same change as the code**, not at the end of the phase.
+- When a discovery in `notes.md` proves durable, promote it to `knowledge/` and delete it
+  from `notes.md` — do not leave both.
+- **A measurement pasted into a plan is stale the moment it is written.** State the exit
+  criterion as the command that produces the number, and keep the number in `status.md`.
+
+---
+
+## references.md — what the repository refers to but must not commit
+
+Two kinds of value never belong in a committed file:
+
+- **local** — true of one machine and meaningless on another: a home directory, a
+  checkout location, a hostname, a port. Committing it is noise.
+- **restricted** — true everywhere and publishable nowhere: a deployment environment, an
+  organisation, a customer, a person. Committing it is a disclosure, and a disclosure
+  survives the commit that removes it.
+
+`references.md` is the committed register: it declares each name and which kind it is,
+and never the value (REQ-0010). `references.local.md` holds `- NAME: value` and is
+gitignored (REQ-0011). Documents cite the name in `{{DOUBLE_BRACES}}`.
+
+`AGENTS_COMPANION` is the first entry of every `references.local.md`, because without it
+nothing else in this contract can be found.
+
+- An absolute home path in committed material is a violation with or without a register
+  (REQ-0303). A declared value appearing in committed material is a violation
+  (REQ-0304); a repository that declares nothing is *not applicable*, which is not the
+  same as clean.
+- **Most local facts want deleting, not declaring.** Where an interpreter lives is
+  machine-bound and discoverable in a second; a name for it buys indirection and no
+  information.
+- The checker infers nothing. It holds the repository to what a person declared, which is
+  what makes the register worth keeping current.
+
+---
+
+## Defects are not kept here
+
+**A defect is an issue, in the project's issue tracker** (REQ-0006). A defect carries a
+lifecycle, a priority and an owner, which is a tracker's job and none of the directories
+above. An observation is also not a unit of work: most defects are never worked, and a
+plan per defect means writing plans for things you then decline.
+
+- **Filing and reading one:** use the forge's own tooling — `gh issue create`,
+  `gh issue view 123`, `gh issue list` — or the equivalent for whatever forge is in use.
+- **Where that tooling is unavailable** — no CLI, no credentials, no network — **write a
+  plain reference**: state the defect in prose where it matters and say that it is
+  unfiled. Never invent an identifier for it, and never start a ledger file. A named
+  thing that cannot be looked up is worse than an unnamed one.
+- **A code comment carries the reason, not the number.** Issues are not in the clone, so
+  the sentence must survive `#123` being unresolvable.
+
+A plan cites the issues it closes. `work/<slug>/status.md` names the ones a phase
+actually closed. Neither restates the issue.
+
+---
+
+## Traceability
+
+Every requirement is verified by something, and the mapping is **generated, not
+authored** — a hand-maintained matrix is stale within a week.
+
+- Where this checker owns it: requirements carry identifiers, a test declares what it
+  verifies with a `@verifies <identifier>` tag, and the trace matrix is the
+  projection of the two.
+- **Where this repository already has a tool that answers it**, that tool keeps the job.
+  Declare it under `[traceability]` in `.agents/harness.toml` and the checker reports
+  those requirements as `DELEGATED`, naming it. Do not run two traceability stacks: a
+  second identifier namespace and a second evidence syntax measure nothing new.
+
+---
+
+## Testing
+
+Every unit of work is validated before it is reported as done.
+
+- **Run the tests that exist**, and establish the baseline *before* changing anything, so
+  a pre-existing failure is never attributed to the change.
+- **Create the tests that do not.** A change with no test covering it is not finished.
+  Missing coverage is work, not a caveat.
+- **Report faithfully.** If a level could not be run, say which one and why. Silence must
+  never read as a pass, and a change is not "verified" on the strength of the levels that
+  were convenient.
+- Procedures for each level belong in the companion's `playbooks/testing.md`.
+
+---
+
+## Choosing where information belongs
+
+**Will this still be true and useful after this work is finished?** → `knowledge/`
+
+**Is this a repeatable way of working?** → `playbooks/`
+
+**Is this a proposal, or a decision taken while implementing one?** → `plans/`
+
+**Is this only useful while executing current work?** → `work/`
+
+**Is this something that is broken?** → an issue. Not a file here.
+
+**Is this why a technical choice was made?** → `docs/decisions/`
+
+**Is this the record of a plan phase that is now finished?** → split it. The decisions go
+in the plan, the progress stays in `work/`.
+
+The first four are companion directories. If the answer is one of them, the writing
+happens in the companion — never in this repository, and never "just for now".
+
+---
+
+## Principles
+
+- One fact, one home. Prefer updating an existing document over creating a new one.
+- Prefer a few well-maintained documents over many fragmented ones.
+- Outdated knowledge is worse than missing knowledge, because it is trusted.
+- If documentation and code disagree, identify the inconsistency rather than guessing.
+- A number a command can produce is never written down by hand.
+- A change is done when its tests pass, its documentation matches it, and what was
+  skipped is stated.
+
+---
+
+## Maintaining this document
+
+**Read only.** Do not edit it, and do not edit `AGENTS.md` beside it. Neither is this
+repository's document: both are issued by the agent harness and are byte-identical in
+every repository carrying it, which is the only reason an agent can read them once and
+skip them everywhere else.
+
+A change lands by changing the harness that issues them, after which every repository
+receives the same text — `python -m harness upgrade <target>`. Editing one copy creates
+the drift the standard exists to remove, and the next reader cannot tell an improvement
+from an accident. REQ-0012 reports a copy that has been altered.
+
+Anything you were about to add here has a home, and this document is the rule for which:
+a trap goes to the companion's `knowledge/`, a procedure to its `playbooks/`, an intended
+change to its `plans/`, a rationale to `docs/decisions/`, a description of the system
+to `docs/`, and a defect to the issue tracker.
