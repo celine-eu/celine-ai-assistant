@@ -37,9 +37,8 @@ It cannot see three things, and each is stated where it will be read rather than
 here:
 
 - **SDK drift.** A `celine-sdk` bump can leave the suite green and the service broken.
-  `.agents/knowledge/faking-the-sdk-boundary.md`.
 - **SQL.** `HistoryStore`'s ordering, subqueries and delete cascade are executed by
-  nothing. `.agents/playbooks/testing.md` says not to report a change to `history.py` as
+  nothing. the companion's testing playbook says not to report a change to `history.py` as
   verified by `task test`.
 - **Prompts.** A faked model tests the loop and not what the model does with the words.
 

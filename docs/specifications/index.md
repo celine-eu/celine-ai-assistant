@@ -5,8 +5,7 @@ What this service must do, stated so that a test can name it.
 These were **distilled from the code, not written before it** (ADR-0002). Every one of
 them is something `celine-ai-assistant` does today and something a reader would want to
 stay true; none of them is an aspiration. Where the code's behaviour is wrong, the
-requirement states the correct behaviour and the defect is recorded separately — see
-`.agents/plans/defect-remediation.md`. Those are the only requirements not currently
+requirement states the correct behaviour and the defect is recorded separately. Those are the only requirements not currently
 satisfied, and each is named below.
 
 ## How a requirement is verified
@@ -40,5 +39,5 @@ grep -rho "@verifies REQ-[0-9]\{4\}" tests/ | sort | uniq -c
 ## What is not here
 
 - **Why** a choice was made — `docs/decisions/`.
-- A trap that is true of the code and not obvious from it — `.agents/knowledge/`.
-- Anything broken — `.agents/plans/defect-remediation.md`, and the issue tracker.
+- A trap that is true of the code and not obvious from it — the companion's knowledge.
+- Anything broken — the issue tracker.

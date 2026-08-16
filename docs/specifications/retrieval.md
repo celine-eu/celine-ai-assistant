@@ -48,4 +48,4 @@ is no text to retrieve on.
 deletion does not reach them. They are still scoped correctly for retrieval — the
 metadata the rule reads is metadata they already carry. Clearing them needs a reindex.
 
-See `.agents/knowledge/rag-corpus-isolation.md` for what is actually in the collection.
+What is actually in the collection is recorded in the companion's knowledge.

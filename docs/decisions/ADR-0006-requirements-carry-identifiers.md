@@ -7,7 +7,7 @@
 
 The harness offers two answers to "is this requirement verified?": its own checker,
 reading `docs/specifications/` and `@verifies` tags, or an existing tool declared under
-`[traceability]` in `.agents/harness.toml`. This repository had neither — no requirement
+`[traceability]` in the harness profile. This repository had neither — no requirement
 identifiers, no traceability provider, and until 2026-08-15 no tests.
 
 Delegating is the right answer for a repository that already has a requirement universe.
@@ -17,7 +17,7 @@ This one had nothing to delegate to.
 
 Adopt the harness convention. Requirements are `REQ-####` in `docs/specifications/`,
 grouped by area. A test declares what it covers with `@verifies REQ-####` in its
-docstring. `.agents/harness.toml` stays at its defaults, which is what selects the
+docstring. the harness profile stays at its defaults, which is what selects the
 harness as the provider.
 
 A new requirement and a test that declares it land in the same change.

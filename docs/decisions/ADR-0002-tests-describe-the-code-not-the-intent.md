@@ -32,7 +32,7 @@ Neither would have been found by a test written from intent.
 The cost is that `tests/` contains assertions that are deliberately wrong, and a reader
 who skims will mistake one for a specification. The mitigations: every such test says so
 in its docstring and names a `DEFECT-nn`; `docs/specifications/` states the correct
-behaviour and lists what is not satisfied; `.agents/plans/defect-remediation.md` says
+behaviour and lists what is not satisfied; the companion's plans says
 that fixing a defect starts by rewriting its test.
 
 This is a decision about a first suite, not a house style. Once the requirements exist,

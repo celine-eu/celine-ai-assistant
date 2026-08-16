@@ -11,7 +11,7 @@ The assistant processes user queries through a Retrieval-Augmented Generation pi
 
 All of it shares **one Qdrant collection**: curated training material, administrator-shared
 files, and every member's own uploads. What separates them is metadata that the retrieval
-query does not currently read — see `.agents/knowledge/rag-corpus-isolation.md` before
+query does not currently read — see the companion's knowledge before
 changing anything on this path.
 
 ## Component Overview
@@ -43,8 +43,7 @@ Present in `src/`, reachable from nothing, and easy to mistake for the supported
 | `training_materials_sync.py` | the sync entry point | an older one; the routes import `training_materials.py`'s |
 | `src/celine/assistant/skills/datasets.py` | a dataset-query skill | deliberately disabled — `dataset-api` needs a service token, and this service holds only the caller's (ADR-0005) |
 
-Deleting them is owed work, not a decision to re-take. See
-`.agents/plans/defect-remediation.md`.
+Deleting them is owed work, not a decision to re-take.
 
 ## Frontend
 
