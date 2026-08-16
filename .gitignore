@@ -10,9 +10,4 @@ __pycache__
 
 skaffold
 
-# Execution state: transient, and the plan is what survives
-.agents/work/
-
-# Notes under .agents/ are not published from this repository.
-.agents/*
-!.agents/README.md
+.agents
