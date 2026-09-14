@@ -33,4 +33,15 @@ the cost of the decision, and it is why `OAUTH2_TRUST_HEADERS` exists as a switc
 than being assumed.
 
 Separately, the current implementation *falls back* to headers when a token is present
-and fails to verify — which is not this decision, and is DEFECT-03.
+and fails to verify — which is not this decision, and is DEFECT-03. (Fixed: a token that
+fails to verify is now refused.)
+
+**Token verification trusts only a configured anchor.** Verifying a token requires
+`OAUTH2_JWKS_URL` (which falls back to the platform's `CELINE_OIDC_JWKS_URI`) or
+`OAUTH2_ISSUER`; the service does not fetch keys from, or trust, the issuer a token names
+for itself, and it pins the signature algorithm rather than reading it from the token
+header. An earlier implementation did the opposite when those settings were unset —
+deriving the JWKS location from the unverified token, skipping the issuer check, and
+honouring the header's `alg` — which let a caller who could serve a key set forge any
+identity. That is closed; a deployment with no trust anchor configured now refuses
+tokens outright rather than trusting them.

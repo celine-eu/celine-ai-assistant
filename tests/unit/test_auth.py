@@ -238,3 +238,121 @@ def test_user_info_of_an_identity_with_no_claims_is_empty_but_not_an_error():
     assert info.username == ""
     assert info.groups == []
     assert info.is_admin is False
+
+
+# --- token verification is bound to a configured trust anchor ----------------
+#
+# The regression these pin: with no trust anchor configured, verification used to
+# take the issuer from the *unverified* token, fetch that issuer's JWKS, skip the
+# issuer check, and take the algorithm from the token header. A caller who served
+# their own key set could then forge any identity. See auth._jwks_url_from_token
+# and auth._verify_jwt.
+
+import pytest as _pytest
+from jose import jwt as _jose_jwt
+
+from celine.assistant import auth as _auth
+from celine.assistant.auth import _jwks_url_from_token, _verify_jwt
+
+
+def _token(iss: str = "https://issuer.test", alg: str = "RS256") -> str:
+    return _jose_jwt.encode(
+        {"iss": iss, "sub": "x"}, "secret", algorithm="HS256", headers={"alg": alg}
+    )
+
+
+async def test_unconfigured_verification_refuses_the_tokens_own_issuer(monkeypatch):
+    """With neither OAUTH2_JWKS_URL nor OAUTH2_ISSUER set, a token is not verified
+    against the issuer it names for itself. @verifies REQ-0002"""
+    monkeypatch.setattr(settings, "oauth2_jwks_url", None)
+    monkeypatch.setattr(settings, "oauth2_issuer", None)
+
+    called = False
+
+    async def _boom(_issuer):
+        nonlocal called
+        called = True
+        return {"jwks_uri": "https://evil.test/jwks"}
+
+    monkeypatch.setattr(_auth, "_get_discovery", _boom)
+
+    with _pytest.raises(_auth.AuthError):
+        await _jwks_url_from_token(_token(iss="https://evil.test"))
+    assert called is False  # never reached the attacker-named issuer
+
+
+async def test_discovery_uses_the_configured_issuer_not_the_tokens(monkeypatch):
+    """Discovery is fetched from OAUTH2_ISSUER, never from the token's iss.
+    @verifies REQ-0002"""
+    monkeypatch.setattr(settings, "oauth2_jwks_url", None)
+    monkeypatch.setattr(settings, "oauth2_issuer", "https://issuer.test")
+
+    seen: list[str] = []
+
+    async def _discovery(issuer):
+        seen.append(issuer)
+        return {"jwks_uri": "https://issuer.test/jwks"}
+
+    monkeypatch.setattr(_auth, "_get_discovery", _discovery)
+
+    # A token that names a different issuer is rejected before any network call.
+    with _pytest.raises(_auth.AuthError):
+        await _jwks_url_from_token(_token(iss="https://evil.test"))
+    assert seen == []
+
+    # A token that names the configured issuer discovers from the configured issuer.
+    url = await _jwks_url_from_token(_token(iss="https://issuer.test"))
+    assert url == "https://issuer.test/jwks"
+    assert seen == ["https://issuer.test"]
+
+
+async def test_jwks_url_is_bound_to_the_issuer_when_both_are_set(monkeypatch):
+    """A configured JWKS URL still binds the token to a configured issuer.
+    @verifies REQ-0002"""
+    monkeypatch.setattr(settings, "oauth2_jwks_url", "https://issuer.test/jwks")
+    monkeypatch.setattr(settings, "oauth2_issuer", "https://issuer.test")
+
+    with _pytest.raises(_auth.AuthError):
+        await _jwks_url_from_token(_token(iss="https://evil.test"))
+
+    assert await _jwks_url_from_token(_token(iss="https://issuer.test")) == (
+        "https://issuer.test/jwks"
+    )
+
+
+def test_the_verification_algorithm_is_pinned_not_taken_from_the_header(monkeypatch):
+    """The algorithm passed to jwt.decode is the configured allowlist, regardless of
+    what the token header asks for. @verifies REQ-0002"""
+    monkeypatch.setattr(settings, "oauth2_issuer", None)
+    monkeypatch.setattr(settings, "oauth2_audience", None)
+    monkeypatch.setattr(settings, "oauth2_algorithms", ["RS256"])
+
+    captured: dict = {}
+
+    def _fake_decode(token, key, **kwargs):
+        captured.update(kwargs)
+        return {"sub": "x"}
+
+    monkeypatch.setattr(_auth.jwt, "decode", _fake_decode)
+
+    jwks = {"keys": [{"kid": "k1"}]}
+    token = _jose_jwt.encode(
+        {"sub": "x"}, "secret", algorithm="HS256", headers={"kid": "k1", "alg": "HS256"}
+    )
+    _verify_jwt(token, jwks)
+
+    assert captured["algorithms"] == ["RS256"]
+
+
+def test_oauth2_jwks_url_falls_back_to_the_platform_oidc_setting(monkeypatch):
+    """OAUTH2_JWKS_URL unset but CELINE_OIDC_JWKS_URI present resolves the verifier's
+    JWKS URL, so a deployment configuring the SDK also configures this check."""
+    from celine.assistant.settings import Settings
+
+    monkeypatch.delenv("OAUTH2_JWKS_URL", raising=False)
+    monkeypatch.setenv("CELINE_OIDC_JWKS_URI", "http://keycloak/realms/celine/certs")
+    assert Settings().oauth2_jwks_url == "http://keycloak/realms/celine/certs"
+
+    # An explicit OAUTH2_JWKS_URL wins over the fallback.
+    monkeypatch.setenv("OAUTH2_JWKS_URL", "https://explicit.test/jwks")
+    assert Settings().oauth2_jwks_url == "https://explicit.test/jwks"

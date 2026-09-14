@@ -162,17 +162,34 @@ def _unverified_issuer(token: str) -> str | None:
 
 
 async def _jwks_url_from_token(token: str) -> str:
+    # The key set used to verify a token must come from a trust anchor the operator
+    # configured, never from the token itself. Deriving the JWKS location from the
+    # token's own (unverified) `iss` lets a caller point verification at a key set they
+    # control and mint any identity, administrator included — so a configured
+    # `OAUTH2_JWKS_URL` or `OAUTH2_ISSUER` is required, and without one we refuse rather
+    # than trust the token's self-declared issuer.
     if settings.oauth2_jwks_url:
+        if settings.oauth2_issuer:
+            iss = _unverified_issuer(token)
+            if iss != settings.oauth2_issuer:
+                raise AuthError("JWT issuer mismatch")
         return settings.oauth2_jwks_url
+
+    if not settings.oauth2_issuer:
+        raise AuthError(
+            "token verification is not configured: set OAUTH2_JWKS_URL or "
+            "OAUTH2_ISSUER (the token's self-declared issuer is not trusted)"
+        )
 
     iss = _unverified_issuer(token)
     if not iss:
         raise AuthError("JWT missing iss claim")
 
-    if settings.oauth2_issuer and iss != settings.oauth2_issuer:
+    if iss != settings.oauth2_issuer:
         raise AuthError("JWT issuer mismatch")
 
-    discovery = await _get_discovery(iss)
+    # Discover from the configured issuer, not the one the token names.
+    discovery = await _get_discovery(settings.oauth2_issuer)
     jwks_uri = discovery.get("jwks_uri")
     if not isinstance(jwks_uri, str) or not jwks_uri:
         raise AuthError("OIDC discovery missing jwks_uri")
@@ -190,10 +207,12 @@ def _verify_jwt(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
 
     issuer = settings.oauth2_issuer
     audience = settings.oauth2_audience
+    # Algorithms are pinned by configuration, never taken from the token header: a
+    # caller must not be able to choose the algorithm their token is verified against.
     return jwt.decode(
         token,
         jwk,
-        algorithms=[headers.get("alg", "RS256")],
+        algorithms=settings.oauth2_algorithms,
         issuer=issuer,
         audience=audience,
         options={

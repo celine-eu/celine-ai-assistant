@@ -24,6 +24,13 @@ trusted headers. The headers are an identity for a request carrying no token at 
 otherwise an expired or forged token would be indistinguishable from no token, and with
 `OAUTH2_TRUST_HEADERS` on that is whatever the caller asserted.
 
+Verification is bound to a **configured** trust anchor. The key set comes from
+`OAUTH2_JWKS_URL` (which falls back to the platform's `CELINE_OIDC_JWKS_URI`), or from
+the OIDC discovery of `OAUTH2_ISSUER`; with neither set the token is refused rather than
+verified against the issuer it names for itself. When `OAUTH2_ISSUER` is set, a token
+whose `iss` differs is refused. The signature algorithm is taken from
+`OAUTH2_ALGORITHMS` (default `RS256`), never from the token header.
+
 ### REQ-0003 — trusted headers are an accepted identity
 
 With `OAUTH2_TRUST_HEADERS` enabled, `x-auth-request-user` (or `x-auth-request-email`)

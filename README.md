@@ -38,8 +38,9 @@ task run
 | `QDRANT_COLLECTION` | `celine_docs` | Qdrant collection name |
 | `DATABASE_URL` | `postgresql+asyncpg://...host.docker.internal:15432/ai_assistant` | PostgreSQL async URL |
 | `OAUTH2_TRUST_HEADERS` | `true` | Trust headers from oauth2_proxy |
-| `OAUTH2_JWKS_URL` | — | JWKS endpoint (auto-discovered if not set) |
-| `OAUTH2_ISSUER` | — | OAuth2 issuer URL |
+| `OAUTH2_JWKS_URL` | — | JWKS endpoint (falls back to `CELINE_OIDC_JWKS_URI`); required unless `OAUTH2_ISSUER` is set |
+| `OAUTH2_ISSUER` | — | Expected issuer; JWKS discovered from it, and a mismatching token `iss` is refused |
+| `OAUTH2_ALGORITHMS` | `["RS256"]` | Accepted signature algorithms (pinned, not from the token header) |
 | `OAUTH2_AUDIENCE` | `oauth2_proxy` | Expected JWT audience |
 | `ADMIN_GROUP` | `admins` | Group name for admin access |
 | `DIGITAL_TWIN_API_URL` | `http://172.17.0.1:8002` | Digital Twin API for energy/weather/forecast skills |

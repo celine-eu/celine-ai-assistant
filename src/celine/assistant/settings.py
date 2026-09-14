@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 
 class Settings(BaseSettings):
@@ -62,8 +62,21 @@ class Settings(BaseSettings):
     db_pool_recycle: int = Field(default=1800, alias="DB_POOL_RECYCLE")
 
     oauth2_trust_headers: bool = Field(default=True, alias="OAUTH2_TRUST_HEADERS")
-    oauth2_jwks_url: str | None = Field(default=None, alias="OAUTH2_JWKS_URL")
+    # A configured trust anchor is required to verify a token. `OAUTH2_JWKS_URL` falls
+    # back to the platform's `CELINE_OIDC_JWKS_URI` (set by the infra chart) so a
+    # deployment that configures the SDK's OIDC settings also configures this verifier
+    # rather than silently trusting the issuer the token names for itself.
+    oauth2_jwks_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OAUTH2_JWKS_URL", "CELINE_OIDC_JWKS_URI"),
+    )
     oauth2_issuer: str | None = Field(default=None, alias="OAUTH2_ISSUER")
+    # Signature algorithms accepted at verification. Pinned here rather than read from
+    # the token header, so a caller cannot choose the algorithm their token is checked
+    # against.
+    oauth2_algorithms: list[str] = Field(
+        default_factory=lambda: ["RS256"], alias="OAUTH2_ALGORITHMS"
+    )
     oauth2_audience: str | None = Field(default="oauth2_proxy", alias="OAUTH2_AUDIENCE")
     oauth2_jwt_cookie_name: str | None = Field(
         default=None, alias="OAUTH2_JWT_COOKIE_NAME"

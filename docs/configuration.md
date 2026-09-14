@@ -34,8 +34,9 @@ All settings are defined in `src/celine/assistant/settings.py` using `pydantic-s
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `OAUTH2_TRUST_HEADERS` | `bool` | `true` | Trust JWT from proxy headers (oauth2_proxy) |
-| `OAUTH2_JWKS_URL` | `str?` | — | JWKS endpoint for JWT verification (auto-discovered if not set) |
-| `OAUTH2_ISSUER` | `str?` | — | OAuth2 issuer URL |
+| `OAUTH2_JWKS_URL` | `str?` | — | JWKS endpoint for JWT verification. Falls back to `CELINE_OIDC_JWKS_URI`. If unset, `OAUTH2_ISSUER` must be set |
+| `OAUTH2_ISSUER` | `str?` | — | Expected token issuer; the JWKS is discovered from it. A token whose `iss` differs is refused |
+| `OAUTH2_ALGORITHMS` | `list[str]` | `["RS256"]` | Accepted signature algorithms. Pinned, not read from the token header |
 | `OAUTH2_AUDIENCE` | `str?` | `oauth2_proxy` | Expected JWT audience |
 | `OAUTH2_JWT_COOKIE_NAME` | `str?` | — | Optional JWT cookie name |
 | `ADMIN_GROUP` | `str` | `admins` | Group name for admin access |
@@ -89,6 +90,7 @@ All settings are defined in `src/celine/assistant/settings.py` using `pydantic-s
 ## Notes
 
 - `DATABASE_URL` must use the `asyncpg` driver for async SQLAlchemy compatibility.
-- When `OAUTH2_TRUST_HEADERS` is `true`, the JWT from `x-auth-request-access-token` header is trusted without JWKS verification (used behind oauth2_proxy).
+- A presented token is always verified against a configured trust anchor (`OAUTH2_JWKS_URL` or `OAUTH2_ISSUER`); it is never trusted on the strength of the issuer it names for itself, and the algorithm is taken from `OAUTH2_ALGORITHMS`, not the token header. A token that does not verify is refused, never downgraded to header trust.
+- `OAUTH2_TRUST_HEADERS` governs only requests that carry *no* token: with it on, `x-auth-request-user`/`-email`/`-groups` are accepted as identity. This is safe only when the network guarantees those headers can be set by the proxy alone (see ADR-0003).
 - Upload storage defaults to local disk. The `UPLOADS_URI` supports `file://` and `s3://` schemes.
 - Skills (Digital Twin, Weather, Flexibility, REC Registry) are registered per-request only when the matching service URL is configured and a user token is available.
