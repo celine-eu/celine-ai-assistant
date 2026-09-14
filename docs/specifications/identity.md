@@ -35,7 +35,9 @@ whose `iss` differs is refused. The signature algorithm is taken from
 
 With `OAUTH2_TRUST_HEADERS` enabled, `x-auth-request-user` (or `x-auth-request-email`)
 identifies the caller and `x-auth-request-groups` carries their groups, comma-separated,
-with blank entries dropped. With the switch off, headers alone are not an identity.
+with blank entries dropped. **The switch is off by default**: unless a deployment opts in,
+headers alone are not an identity and a request carrying no verifiable token is answered
+`401`.
 
 ### REQ-0004 — administrator status is group membership
 

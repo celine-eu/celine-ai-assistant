@@ -356,3 +356,12 @@ def test_oauth2_jwks_url_falls_back_to_the_platform_oidc_setting(monkeypatch):
     # An explicit OAUTH2_JWKS_URL wins over the fallback.
     monkeypatch.setenv("OAUTH2_JWKS_URL", "https://explicit.test/jwks")
     assert Settings().oauth2_jwks_url == "https://explicit.test/jwks"
+
+
+def test_trusting_headers_is_off_by_default(monkeypatch):
+    """The default identity is a verified JWT; header trust is an explicit opt-in.
+    @verifies REQ-0003"""
+    from celine.assistant.settings import Settings
+
+    monkeypatch.delenv("OAUTH2_TRUST_HEADERS", raising=False)
+    assert Settings().oauth2_trust_headers is False

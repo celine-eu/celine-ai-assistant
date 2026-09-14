@@ -16,7 +16,13 @@ itself, against a JWKS discovered from the issuer, or it can trust the
 ## Decision
 
 Do both, token first: verify a token when one is present; otherwise accept the proxy's
-headers when `OAUTH2_TRUST_HEADERS` is set, which it is by default.
+headers when `OAUTH2_TRUST_HEADERS` is set.
+
+**The switch is off by default** (changed 2026-09-14; it was on). The default identity is
+a verified JWT and nothing else; trusting the `x-auth-request-*` headers is an explicit,
+per-deployment opt-in, taken only where the network guarantees the proxy alone can set
+them. A deployment relying on the header path must both turn the switch on and ensure the
+proxy always forwards a verifiable token, or requests carrying none will be refused.
 
 The caller's own token is forwarded downstream unchanged — this service holds no service
 account and each upstream re-verifies for itself. See ADR-0005.
@@ -28,9 +34,9 @@ account and each upstream re-verifies for itself. See ADR-0005.
 makes that safe is network placement and the proxy stripping those headers from client
 requests. Neither is verifiable from this repository, and no test can assert it.
 
-A deployment that exposes this service directly is a full authentication bypass. That is
-the cost of the decision, and it is why `OAUTH2_TRUST_HEADERS` exists as a switch rather
-than being assumed.
+A deployment that exposes this service directly **and turns the switch on** is a full
+authentication bypass. That is the cost of the header path, and it is why
+`OAUTH2_TRUST_HEADERS` exists as a switch, and now defaults off rather than being assumed.
 
 Separately, the current implementation *falls back* to headers when a token is present
 and fails to verify — which is not this decision, and is DEFECT-03. (Fixed: a token that

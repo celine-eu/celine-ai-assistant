@@ -61,7 +61,10 @@ class Settings(BaseSettings):
     db_pool_timeout: int = Field(default=30, alias="DB_POOL_TIMEOUT")
     db_pool_recycle: int = Field(default=1800, alias="DB_POOL_RECYCLE")
 
-    oauth2_trust_headers: bool = Field(default=True, alias="OAUTH2_TRUST_HEADERS")
+    # Off by default: an identity is established from a verified JWT. The unverified
+    # `x-auth-request-*` headers are trusted only where the operator has explicitly
+    # opted in AND the network guarantees the proxy alone can set them (see ADR-0003).
+    oauth2_trust_headers: bool = Field(default=False, alias="OAUTH2_TRUST_HEADERS")
     # A configured trust anchor is required to verify a token. `OAUTH2_JWKS_URL` falls
     # back to the platform's `CELINE_OIDC_JWKS_URI` (set by the infra chart) so a
     # deployment that configures the SDK's OIDC settings also configures this verifier

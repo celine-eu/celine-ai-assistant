@@ -33,7 +33,7 @@ All settings are defined in `src/celine/assistant/settings.py` using `pydantic-s
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `OAUTH2_TRUST_HEADERS` | `bool` | `true` | Trust JWT from proxy headers (oauth2_proxy) |
+| `OAUTH2_TRUST_HEADERS` | `bool` | `false` | Trust unverified `x-auth-request-*` headers for requests carrying no token. Opt-in; safe only behind a trusted proxy on an isolated network |
 | `OAUTH2_JWKS_URL` | `str?` | — | JWKS endpoint for JWT verification. Falls back to `CELINE_OIDC_JWKS_URI`. If unset, `OAUTH2_ISSUER` must be set |
 | `OAUTH2_ISSUER` | `str?` | — | Expected token issuer; the JWKS is discovered from it. A token whose `iss` differs is refused |
 | `OAUTH2_ALGORITHMS` | `list[str]` | `["RS256"]` | Accepted signature algorithms. Pinned, not read from the token header |
