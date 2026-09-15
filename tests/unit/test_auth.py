@@ -365,3 +365,89 @@ def test_trusting_headers_is_off_by_default(monkeypatch):
 
     monkeypatch.delenv("OAUTH2_TRUST_HEADERS", raising=False)
     assert Settings().oauth2_trust_headers is False
+
+
+# What the API is given is an access token: oauth2-proxy's `X-Auth-Request-Access-Token`
+# for a cookie session. An ID token reaches it only when a caller forwards the proxy's
+# `Authorization` header as a bearer, and it is refused — that is how the assistant UI's
+# server render looped back to sign-in until it stopped forwarding it (celine-frontend
+# `apps/assistant/src/hooks.server.ts`, 2026-09-15). These sign real RS256 tokens.
+
+import base64 as _base64
+import time as _time
+
+from cryptography.hazmat.primitives import serialization as _serialization
+from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+_ISSUER = "https://issuer.test/realms/celine"
+
+
+def _rsa_key():
+    return _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+def _jwks_of(key, kid: str) -> dict:
+    def b64(n: int) -> str:
+        raw = n.to_bytes((n.bit_length() + 7) // 8, "big")
+        return _base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    pub = key.public_key().public_numbers()
+    return {"keys": [{"kty": "RSA", "kid": kid, "alg": "RS256", "use": "sig", "n": b64(pub.n), "e": b64(pub.e)}]}
+
+
+def _token_of(key, kid: str, **claims) -> str:
+    pem = key.private_bytes(
+        _serialization.Encoding.PEM, _serialization.PrivateFormat.PKCS8, _serialization.NoEncryption()
+    )
+    body = {
+        "iss": _ISSUER,
+        "aud": "oauth2_proxy",
+        "sub": "user-1",
+        "exp": int(_time.time()) + 300,
+        "typ": "Bearer",
+        **claims,
+    }
+    return _jose_jwt.encode(body, pem, algorithm="RS256", headers={"kid": kid})
+
+
+@_pytest.fixture
+def _configured(monkeypatch):
+    monkeypatch.setattr(settings, "oauth2_issuer", _ISSUER)
+    monkeypatch.setattr(settings, "oauth2_audience", "oauth2_proxy")
+    monkeypatch.setattr(settings, "oauth2_algorithms", ["RS256"])
+
+
+def test_an_access_token_verifies(_configured):
+    """@verifies REQ-0002"""
+    key = _rsa_key()
+    claims = _verify_jwt(_token_of(key, "k1"), _jwks_of(key, "k1"))
+    assert claims["sub"] == "user-1"
+
+
+def test_an_id_token_forwarded_as_a_bearer_is_refused(_configured):
+    """An ID token carries `at_hash` and comes without the access token it hashes.
+    @verifies REQ-0002"""
+    key = _rsa_key()
+    with _pytest.raises(Exception):
+        _verify_jwt(_token_of(key, "k1", typ="ID", at_hash="sM2dL1nQ7fYx0y9sJ1oYkA"), _jwks_of(key, "k1"))
+
+
+def test_a_token_signed_by_another_key_is_refused(_configured):
+    """@verifies REQ-0002"""
+    signer, other = _rsa_key(), _rsa_key()
+    with _pytest.raises(Exception):
+        _verify_jwt(_token_of(signer, "k1"), _jwks_of(other, "k1"))
+
+
+def test_a_token_for_another_audience_is_refused(_configured):
+    """@verifies REQ-0002"""
+    key = _rsa_key()
+    with _pytest.raises(Exception):
+        _verify_jwt(_token_of(key, "k1", aud="someone-else"), _jwks_of(key, "k1"))
+
+
+def test_an_expired_token_is_refused(_configured):
+    """@verifies REQ-0002"""
+    key = _rsa_key()
+    with _pytest.raises(Exception):
+        _verify_jwt(_token_of(key, "k1", exp=int(_time.time()) - 60), _jwks_of(key, "k1"))
