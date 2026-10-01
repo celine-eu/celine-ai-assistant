@@ -3,11 +3,11 @@ from __future__ import annotations
 import base64
 from openai import AsyncOpenAI
 
-from .settings import settings
+from . import llm
 
 
 def _client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=settings.openai_api_key)
+    return llm.chat_client()
 
 
 async def describe_image(*, image_bytes: bytes, filename: str | None = None) -> str:
@@ -28,7 +28,7 @@ async def describe_image(*, image_bytes: bytes, filename: str | None = None) -> 
     )
 
     resp = await client.chat.completions.create(
-        model=settings.openai_vision_model,
+        model=llm.vision_model(),
         messages=[
             {
                 "role": "user",

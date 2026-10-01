@@ -163,7 +163,7 @@ async def _process_upload(
     """Shared upload processing for both user and system scopes.
 
     Determines the processing path based on file type:
-    - Images: describe via OpenAI vision
+    - Images: describe with the vision model
     - PDFs / documents: extract text via document_processing pipeline
     """
     detected_mime = detect_mime(data)

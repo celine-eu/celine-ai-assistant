@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional, cast
 
 from llama_index.core import Document, Settings, StorageContext, VectorStoreIndex
@@ -15,10 +14,10 @@ from llama_index.core.vector_stores import (
     MetadataFilter,
     MetadataFilters,
 )
-from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 
+from celine.assistant import llm
 from celine.assistant.settings import settings
 
 log = logging.getLogger(__name__)
@@ -35,12 +34,7 @@ def _get_index() -> VectorStoreIndex:
     global _index
 
     if _index is None:
-        if not settings.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY missing")
-
-        os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
-
-        Settings.embed_model = OpenAIEmbedding(model=settings.openai_embed_model)
+        Settings.embed_model = llm.embed_model()
         client = QdrantClient(
             url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=30
         )

@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator
 
 from openai import AsyncOpenAI
 
+from . import llm
 from .settings import settings
 from .skills import SkillRegistry
 
@@ -15,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 def _client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=settings.openai_api_key)
+    return llm.chat_client()
 
 
 SYSTEM_PROMPT = """\
@@ -77,7 +78,7 @@ async def _summarize_messages(
     conversation = "\n\n".join(text_parts)
 
     summary = await client.chat.completions.create(
-        model=settings.openai_chat_model,
+        model=settings.llm_chat_model,
         messages=[
             {
                 "role": "system",
@@ -213,7 +214,7 @@ async def _agentic_loop(
         t0 = time.monotonic()
 
         create_kwargs: dict[str, Any] = {
-            "model": settings.openai_chat_model,
+            "model": settings.llm_chat_model,
             "messages": api_messages,
             "temperature": 0.2,
             "stream": True,

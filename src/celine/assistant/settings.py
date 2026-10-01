@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -12,12 +12,35 @@ class Settings(BaseSettings):
     app_env: str = Field(default="prod", alias="APP_ENV")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_chat_model: str = Field(default="gpt-5.4-mini", alias="OPENAI_CHAT_MODEL")
-    openai_embed_model: str = Field(
-        default="text-embedding-3-small", alias="OPENAI_EMBED_MODEL"
-    )
-    openai_vision_model: str = Field(default="gpt-4o-mini", alias="OPENAI_VISION_MODEL")
+    # Every model call goes to an OpenAI-compatible endpoint the deployment names. There
+    # is no default: members' messages and the data the tools fetch for them go wherever
+    # this points, so an unset value must not mean a vendor. To use OpenAI itself, say
+    # `https://api.openai.com/v1`. See `llm.configuration_problems`.
+    llm_base_url: str = Field(default="", alias="LLM_BASE_URL")
+    llm_api_key: str = Field(default="", alias="LLM_API_KEY")
+    llm_chat_model: str = Field(default="", alias="LLM_CHAT_MODEL")
+    # Empty means the chat model, which is right for a multimodal model.
+    llm_vision_model: str = Field(default="", alias="LLM_VISION_MODEL")
+    # Embeddings are often served by a process of their own; empty means the chat
+    # endpoint and its key.
+    llm_embed_base_url: str = Field(default="", alias="LLM_EMBED_BASE_URL")
+    llm_embed_api_key: str = Field(default="", alias="LLM_EMBED_API_KEY")
+    llm_embed_model: str = Field(default="", alias="LLM_EMBED_MODEL")
+    # The vector size the collection is created with. Empty means ask the model once.
+    llm_embed_dimensions: int | None = Field(default=None, alias="LLM_EMBED_DIMENSIONS")
+
+    @field_validator("llm_embed_dimensions", mode="before")
+    @classmethod
+    def _empty_is_unset(cls, value):
+        # Charts render an unset value as an empty string.
+        return None if value == "" else value
+
+    # The names these settings had until 2026-10-01. Declared only so a leftover refuses
+    # startup instead of looking configured while nothing reads it.
+    removed_openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    removed_openai_chat_model: str = Field(default="", alias="OPENAI_CHAT_MODEL")
+    removed_openai_embed_model: str = Field(default="", alias="OPENAI_EMBED_MODEL")
+    removed_openai_vision_model: str = Field(default="", alias="OPENAI_VISION_MODEL")
 
     qdrant_url: str = Field(
         default="http://host.docker.internal:6333", alias="QDRANT_URL"

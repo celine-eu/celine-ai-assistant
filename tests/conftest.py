@@ -19,7 +19,12 @@ import os
 # Must run before the first `celine.assistant` import. Do not move below them.
 # ---------------------------------------------------------------------------
 os.environ.setdefault("APP_ENV", "test")
-os.environ["OPENAI_API_KEY"] = "test-key-not-used"
+os.environ["LLM_BASE_URL"] = "http://127.0.0.1:1/v1"
+os.environ["LLM_CHAT_MODEL"] = "test-chat"
+os.environ["LLM_EMBED_MODEL"] = "test-embed"
+os.environ["LLM_EMBED_DIMENSIONS"] = "8"
+for _removed in ("OPENAI_API_KEY", "OPENAI_CHAT_MODEL", "OPENAI_EMBED_MODEL", "OPENAI_VISION_MODEL"):
+    os.environ.pop(_removed, None)
 # Parsed by SQLAlchemy at import; never connected to, because HistoryStore is faked.
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://test:test@127.0.0.1:1/test"
 os.environ["QDRANT_URL"] = "http://127.0.0.1:1"

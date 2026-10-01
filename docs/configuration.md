@@ -2,14 +2,38 @@
 
 All settings are defined in `src/celine/assistant/settings.py` using `pydantic-settings`. Values are read from environment variables or `.env` file.
 
-## OpenAI Settings
+## Models
+
+Every model call goes to an OpenAI-compatible endpoint: chat, conversation summaries,
+image captions and embeddings. vLLM, Ollama and the llama.cpp server all expose one.
+What crosses it is the member's messages and attachments and the data the tools fetch
+with the member's token. The endpoint therefore has **no default**: startup refuses
+without `LLM_BASE_URL`. To use OpenAI itself, set `https://api.openai.com/v1`.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `OPENAI_API_KEY` | `str` | — | OpenAI API key (required) |
-| `OPENAI_CHAT_MODEL` | `str` | `gpt-5.4-mini` | Chat completion model |
-| `OPENAI_EMBED_MODEL` | `str` | `text-embedding-3-small` | Embedding model for indexing and retrieval |
-| `OPENAI_VISION_MODEL` | `str` | `gpt-4o-mini` | Vision model for image captioning |
+| `LLM_BASE_URL` | `str` | — | OpenAI-compatible endpoint (required) |
+| `LLM_API_KEY` | `str` | — | Key for that endpoint, if it needs one |
+| `LLM_CHAT_MODEL` | `str` | — | Chat model; must support tool calling (required) |
+| `LLM_VISION_MODEL` | `str` | the chat model | Vision model for image captioning |
+| `LLM_EMBED_BASE_URL` | `str` | `LLM_BASE_URL` | Separate endpoint for embeddings |
+| `LLM_EMBED_API_KEY` | `str` | `LLM_API_KEY` | Key for the embeddings endpoint |
+| `LLM_EMBED_MODEL` | `str` | — | Embedding model for indexing and retrieval (required) |
+| `LLM_EMBED_DIMENSIONS` | `int?` | asked of the model | Vector size the collection is created with |
+
+The `OPENAI_*` variables used before 2026-10-01 are no longer read. If one is set,
+startup refuses and names its replacement.
+
+**Changing the embedding model needs a new collection.** A collection holds vectors of
+one size. If `QDRANT_COLLECTION` already exists with a different size, startup refuses.
+To switch:
+
+1. Set a new collection name.
+2. Re-ingest the corpus (`INGEST_FORCE_RELOAD_ON_START=true`).
+
+Uploaded attachments are not re-indexed. No command does it yet. Their files and text
+stay in storage and PostgreSQL, but the assistant cannot retrieve them from the new
+collection until they are uploaded again.
 
 ## Vector Store
 

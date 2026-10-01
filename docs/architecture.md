@@ -6,7 +6,7 @@ The assistant processes user queries through a Retrieval-Augmented Generation pi
 
 1. **Upload** — files are uploaded via `POST /upload`, parsed, and chunked. Images are captioned via the vision model.
 2. **Index** — chunks are embedded and stored in Qdrant as vector documents
-3. **Chat** — at query time, relevant chunks are retrieved and injected into the OpenAI prompt; the LLM autonomously calls skill tools to fetch live data
+3. **Chat** — at query time, relevant chunks are retrieved and injected into the prompt; the LLM autonomously calls skill tools to fetch live data
 4. **Stream** — the response is streamed back to the client via SSE
 
 All of it shares **one Qdrant collection**: curated training material, administrator-shared
@@ -23,8 +23,9 @@ changing anything on this path.
 | Auth | `auth.py` | JWT verification via trusted headers or JWKS |
 | History | `history.py` | Conversation and message persistence |
 | Uploads | `uploads.py` | File storage, attachment management |
-| OpenAI streaming | `openai_stream.py` | SSE token streaming with agentic tool-calling loop |
-| Vision | `openai_vision.py` | Image captioning via OpenAI vision model |
+| Chat streaming | `openai_stream.py` | SSE token streaming with agentic tool-calling loop |
+| Vision | `openai_vision.py` | Image captioning via the vision model |
+| Model endpoint | `llm.py` | Clients for the configured OpenAI-compatible endpoint, embeddings, startup check |
 | Document processing | `document_processing.py` | MIME detection and text extraction for uploads |
 | Skills | `skills/` | Modular skill system: Digital Twin, Weather, Flexibility, REC Registry, Documents |
 | Suggestions | `suggestions.py` | Localized prompt suggestions and tool labels |
@@ -57,7 +58,7 @@ The frontend communicates with this API at `apiBaseUrl`.
 
 | Service | Purpose |
 |---|---|
-| **OpenAI** | Chat completions, text embeddings, and vision (image captioning) |
+| **Model endpoint** (OpenAI-compatible, `LLM_BASE_URL`) | Chat completions, text embeddings, and vision (image captioning) |
 | **Qdrant** | Vector storage and similarity search |
 | **PostgreSQL** | Conversation history, attachment metadata |
 | **Digital Twin** | Energy data, weather, and forecast queries via skills |
@@ -69,12 +70,12 @@ The frontend communicates with this API at `apiBaseUrl`.
 
 Upload path:
 ```
-POST /upload -> parse file -> (if image: caption via vision model) -> split into chunks -> embed (OpenAI) -> upsert (Qdrant) -> store metadata (PostgreSQL)
+POST /upload -> parse file -> (if image: caption via vision model) -> split into chunks -> embed (model endpoint) -> upsert (Qdrant) -> store metadata (PostgreSQL)
 ```
 
 Chat path:
 ```
-POST /chat -> verify JWT -> load history -> load authorized attachments -> retrieve context (Qdrant) -> build prompt -> stream (OpenAI SSE with agentic tool-calling loop)
+POST /chat -> verify JWT -> load history -> load authorized attachments -> retrieve context (Qdrant) -> build prompt -> stream (model endpoint, SSE with agentic tool-calling loop)
 ```
 
 ## Database Models

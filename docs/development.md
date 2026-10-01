@@ -13,7 +13,7 @@
 ```bash
 uv sync
 cp .env.example .env
-# Set OPENAI_API_KEY, DATABASE_URL, QDRANT_URL
+# Set LLM_BASE_URL, LLM_CHAT_MODEL, LLM_EMBED_MODEL, DATABASE_URL, QDRANT_URL
 
 uv run alembic upgrade head
 task run
@@ -69,6 +69,7 @@ src/celine/assistant/
   uploads.py                   # File upload storage and metadata
   openai_stream.py             # SSE streaming with agentic tool-calling loop
   openai_vision.py             # Image captioning via vision model
+  llm.py                       # The model endpoint: clients, embeddings, startup check
   document_processing.py       # MIME detection and text extraction for uploads
   suggestions.py               # Localized prompt suggestions and tool labels
   training_materials.py        # Training materials indexing

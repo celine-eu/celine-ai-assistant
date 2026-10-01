@@ -141,7 +141,7 @@ async def extract_text(
     """Extract text from a file using the best available strategy.
 
     - PDFs: try MarkItDown text extraction first; fall back to rendering
-      pages as images and describing them via OpenAI vision.
+      pages as images and describing them with the vision model.
     - Images: use ``describe_image`` directly.
     - Other types (docx, xlsx, pptx, ...): delegate to MarkItDown.
 

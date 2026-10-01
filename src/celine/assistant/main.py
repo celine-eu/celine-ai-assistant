@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import AuthError
 from .history import HistoryStore
+from .llm import configuration_problems
 from .logging_ import configure_logging
 from .qdrant_setup import ensure_collection
 from .routes import router
@@ -26,6 +27,9 @@ def json_error(status_code: int, detail: str):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    problems = configuration_problems(settings)
+    if problems:
+        raise RuntimeError("model configuration: " + "; ".join(problems))
     ensure_collection()
     app.state.history_store = HistoryStore()
 

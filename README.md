@@ -1,6 +1,6 @@
 # CELINE AI Assistant
 
-FastAPI backend for the CELINE AI assistant. Implements a RAG (Retrieval-Augmented Generation) pipeline using LlamaIndex, Qdrant, and OpenAI. Provides streaming chat, conversation history, file uploads with vision support, and JWT authentication.
+FastAPI backend for the CELINE AI assistant. Implements a RAG (Retrieval-Augmented Generation) pipeline using LlamaIndex, Qdrant, and any OpenAI-compatible model endpoint. Provides streaming chat, conversation history, file uploads with vision support, and JWT authentication.
 
 The chat UI is part of [celine-frontend](https://github.com/celine-eu/celine-frontend) (`apps/assistant`).
 
@@ -11,7 +11,7 @@ The chat UI is part of [celine-frontend](https://github.com/celine-eu/celine-fro
 - Streaming chat via Server-Sent Events (SSE) with tool progress events
 - Conversation history persisted in PostgreSQL
 - File upload with automatic RAG ingestion into Qdrant
-- Vision support for image attachments (captioning via OpenAI vision model)
+- Vision support for image attachments (captioning via the vision model)
 - Automatic sync of `celine-training-materials` from a Git repository
 - JWT authentication (trusted headers from oauth2_proxy or JWKS verification)
 - Admin endpoints for system uploads and training materials sync
@@ -29,10 +29,13 @@ task run
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | — | OpenAI API key (required) |
-| `OPENAI_CHAT_MODEL` | `gpt-5.4-mini` | Chat completion model |
-| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model |
-| `OPENAI_VISION_MODEL` | `gpt-4o-mini` | Vision model for image captioning |
+| `LLM_BASE_URL` | — | OpenAI-compatible endpoint for every model call (required, no default) |
+| `LLM_API_KEY` | — | Key for that endpoint, if it needs one |
+| `LLM_CHAT_MODEL` | — | Chat model, with tool calling (required) |
+| `LLM_VISION_MODEL` | the chat model | Vision model for image captioning |
+| `LLM_EMBED_BASE_URL` / `LLM_EMBED_API_KEY` | the chat endpoint | Separate endpoint for embeddings |
+| `LLM_EMBED_MODEL` | — | Embedding model (required) |
+| `LLM_EMBED_DIMENSIONS` | asked of the model | Vector size of the collection |
 | `QDRANT_URL` | `http://host.docker.internal:6333` | Qdrant vector DB URL |
 | `QDRANT_API_KEY` | — | Optional Qdrant API key |
 | `QDRANT_COLLECTION` | `celine_docs` | Qdrant collection name |
@@ -73,7 +76,7 @@ task run
 
 ## Skills
 
-The assistant uses a modular skill system. Each skill exposes OpenAI function-calling tools that the LLM invokes autonomously during conversation. Skills are registered per-request based on available API endpoints and user authentication.
+The assistant uses a modular skill system. Each skill exposes OpenAI-style function-calling tools that the LLM invokes autonomously during conversation. Skills are registered per-request based on available API endpoints and user authentication.
 
 | Skill | Tools | Data source |
 |---|---|---|
