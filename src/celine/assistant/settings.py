@@ -9,6 +9,9 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    # The legacy name of the environment signal. Read only through `posture.py`,
+    # after CELINE_ENV and ENVIRONMENT; its default is not a signal (unset is
+    # hardened either way), and only the value `dev` relaxes anything.
     app_env: str = Field(default="prod", alias="APP_ENV")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 

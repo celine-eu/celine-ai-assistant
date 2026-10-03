@@ -34,7 +34,7 @@ grep -rho "@verifies REQ-[0-9]\{4\}" tests/ | sort | uniq -c
 | REQ-0022 – REQ-0024, REQ-0041 | [retrieval](retrieval.md) |
 | REQ-0025 – REQ-0030 | [skills and the tool loop](skills.md) |
 | REQ-0031 – REQ-0033, REQ-0042 – REQ-0044 | [knowledge sources](knowledge-sources.md) |
-| REQ-0034 | [operability](operability.md) |
+| REQ-0034, REQ-0045 – REQ-0046 | [operability](operability.md) |
 
 ## What is not here
 

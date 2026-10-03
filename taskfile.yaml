@@ -4,12 +4,12 @@ tasks:
   run:
     desc: Run FastAPI backend (reload)
     cmds:
-      - .venv/bin/uvicorn celine.assistant.main:create_app --host 0.0.0.0 --port 8012 --reload
+      - CELINE_ENV=${CELINE_ENV:-dev} .venv/bin/uvicorn celine.assistant.main:create_app --host 0.0.0.0 --port 8012 --reload
 
   debug:
     desc: Debug FastAPI backend with uv + uvicorn (reload)
     cmds:
-      - DEBUG_ATTACH=nowait DEBUG_PORT=48012 .venv/bin/uvicorn celine.assistant.main:create_app --host 0.0.0.0 --port 8012 --reload
+      - CELINE_ENV=${CELINE_ENV:-dev} DEBUG_ATTACH=nowait DEBUG_PORT=48012 .venv/bin/uvicorn celine.assistant.main:create_app --host 0.0.0.0 --port 8012 --reload
     env:
       PYTHONUNBUFFERED: "1"
 

@@ -18,11 +18,14 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from celine.assistant.posture import is_dev
 from celine.assistant.settings import settings
 
 engine = create_async_engine(
     settings.database_url,  # must be postgresql+asyncpg://...
-    echo=settings.app_env == "dev",
+    # SQL echo follows the same dev signal as everything else (CELINE_ENV, then
+    # ENVIRONMENT, then APP_ENV).
+    echo=is_dev(),
     pool_pre_ping=True,
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,

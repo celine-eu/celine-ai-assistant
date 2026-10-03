@@ -27,6 +27,17 @@ task run
 # Listens on http://localhost:8012
 ```
 
+`task run` exports `CELINE_ENV=dev`, the only value that relaxes anything: wildcard
+CORS, `OAUTH2_TRUST_HEADERS=true`, an unset `OAUTH2_ISSUER` or `QDRANT_API_KEY`, and the
+development database password are accepted in dev with one warning, and refused at
+startup anywhere else. **Unset is hardened.** The signal is `CELINE_ENV`, then
+`ENVIRONMENT`, then the legacy `APP_ENV` (still accepted as a fallback name);
+`CELINE_ENV=staging task run` is the prod-like mode of the same entry point.
+
+The check comes from `celine.sdk.posture`, which is not in a released celine-sdk yet:
+until it is, install the SDK checkout editable
+(`uv pip install --python .venv/bin/python -e ../celine-sdk`).
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -39,7 +50,7 @@ task run
 | `LLM_EMBED_MODEL` | — | Embedding model (required) |
 | `LLM_EMBED_DIMENSIONS` | asked of the model | Vector size of the collection |
 | `QDRANT_URL` | `http://host.docker.internal:6333` | Qdrant vector DB URL |
-| `QDRANT_API_KEY` | — | Optional Qdrant API key |
+| `QDRANT_API_KEY` | — | Qdrant API key; required outside `CELINE_ENV=dev` |
 | `QDRANT_COLLECTION` | `celine_docs` | Prefix of every community's knowledge-base alias |
 | `KB_SOURCES_DIR` | `./data/kb-sources` | Where git sources are cloned |
 | `KB_SYNC_ON_START` | `false` | Sync every registered source when the service starts |
@@ -47,9 +58,9 @@ task run
 | `REC_ORGANIZATION_TYPE` | `rec` | Organization type that marks a REC in the token's `organization` claim |
 | `REC_MANAGER_GROUPS` | `["managers","admins"]` | Groups inside a REC's organization that manage its knowledge |
 | `DATABASE_URL` | `postgresql+asyncpg://...host.docker.internal:15432/ai_assistant` | PostgreSQL async URL |
-| `OAUTH2_TRUST_HEADERS` | `false` | Trust unverified proxy headers when no token is present (opt-in) |
+| `OAUTH2_TRUST_HEADERS` | `false` | Trust unverified proxy headers when no token is present (opt-in, `CELINE_ENV=dev` only) |
 | `OAUTH2_JWKS_URL` | — | JWKS endpoint (falls back to `CELINE_OIDC_JWKS_URI`); required unless `OAUTH2_ISSUER` is set |
-| `OAUTH2_ISSUER` | — | Expected issuer; JWKS discovered from it, and a mismatching token `iss` is refused |
+| `OAUTH2_ISSUER` | — | Expected issuer; JWKS discovered from it, and a mismatching token `iss` is refused. Required outside `CELINE_ENV=dev` |
 | `OAUTH2_ALGORITHMS` | `["RS256"]` | Accepted signature algorithms (pinned, not from the token header) |
 | `OAUTH2_AUDIENCE` | `oauth2_proxy` | Expected JWT audience |
 | `ADMIN_GROUP` | `admins` | Realm group for administrator access (top-level `groups` claim only) |

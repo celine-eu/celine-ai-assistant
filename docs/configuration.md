@@ -40,7 +40,7 @@ collection until they are uploaded again.
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `QDRANT_URL` | `str` | `http://host.docker.internal:6333` | Qdrant base URL |
-| `QDRANT_API_KEY` | `str?` | — | Optional Qdrant API key |
+| `QDRANT_API_KEY` | `str?` | — | Qdrant API key. Required outside `CELINE_ENV=dev` |
 | `QDRANT_COLLECTION` | `str` | `celine_docs` | Qdrant collection name |
 
 ## Database
@@ -57,9 +57,9 @@ collection until they are uploaded again.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `OAUTH2_TRUST_HEADERS` | `bool` | `false` | Trust unverified `x-auth-request-*` headers for requests carrying no token. Opt-in; safe only behind a trusted proxy on an isolated network |
+| `OAUTH2_TRUST_HEADERS` | `bool` | `false` | Trust unverified `x-auth-request-*` headers for requests carrying no token. Opt-in; safe only behind a trusted proxy on an isolated network. Refused at startup outside `CELINE_ENV=dev` |
 | `OAUTH2_JWKS_URL` | `str?` | — | JWKS endpoint for JWT verification. Falls back to `CELINE_OIDC_JWKS_URI`. If unset, `OAUTH2_ISSUER` must be set |
-| `OAUTH2_ISSUER` | `str?` | — | Expected token issuer; the JWKS is discovered from it. A token whose `iss` differs is refused |
+| `OAUTH2_ISSUER` | `str?` | — | Expected token issuer; the JWKS is discovered from it. A token whose `iss` differs is refused. Required outside `CELINE_ENV=dev`: with `OAUTH2_JWKS_URL` alone `iss` is not checked |
 | `OAUTH2_ALGORITHMS` | `list[str]` | `["RS256"]` | Accepted signature algorithms. Pinned, not read from the token header |
 | `OAUTH2_AUDIENCE` | `str?` | `oauth2_proxy` | Expected JWT audience |
 | `OAUTH2_JWT_COOKIE_NAME` | `str?` | — | Optional JWT cookie name |
@@ -115,12 +115,15 @@ Sources themselves are not configuration: they are registered per community with
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `APP_ENV` | `str` | `prod` | Application environment |
+| `CELINE_ENV` | `str` | — | Deployment posture. Only `dev` relaxes: wildcard CORS, header trust, SQL echo, and the values below accepted with a warning. Unset, `prod`, `staging` or anything else is hardened and startup refuses them. Read from the process environment; `task run` exports `dev` |
+| `ENVIRONMENT` | `str` | — | Read when `CELINE_ENV` is unset |
+| `APP_ENV` | `str` | — | Legacy name, read after `CELINE_ENV` and `ENVIRONMENT` (also from `.env`). Its old `prod` default no longer decides anything |
 | `LOG_LEVEL` | `str` | `INFO` | Python log level |
 
 ## Notes
 
-- `DATABASE_URL` must use the `asyncpg` driver for async SQLAlchemy compatibility.
+- `DATABASE_URL` must use the `asyncpg` driver for async SQLAlchemy compatibility. Outside `CELINE_ENV=dev` a development database password is refused at startup.
+- Outside `CELINE_ENV=dev`, startup refuses `OAUTH2_TRUST_HEADERS=true`, an unset `OAUTH2_ISSUER` or `QDRANT_API_KEY`, and a development database password, all named in one message (REQ-0045). Wildcard CORS is served in dev only (REQ-0046).
 - A presented token is always verified against a configured trust anchor (`OAUTH2_JWKS_URL` or `OAUTH2_ISSUER`); it is never trusted on the strength of the issuer it names for itself, and the algorithm is taken from `OAUTH2_ALGORITHMS`, not the token header. A token that does not verify is refused, never downgraded to header trust.
 - `OAUTH2_TRUST_HEADERS` governs only requests that carry *no* token: with it on, `x-auth-request-user`/`-email`/`-groups` are accepted as identity. This is safe only when the network guarantees those headers can be set by the proxy alone (see ADR-0003).
 - Upload storage defaults to local disk. The `UPLOADS_URI` supports `file://` and `s3://` schemes.

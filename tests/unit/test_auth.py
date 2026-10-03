@@ -541,3 +541,20 @@ def test_an_expired_token_is_refused(_configured):
     key = _rsa_key()
     with _pytest.raises(Exception):
         _verify_jwt(_token_of(key, "k1", exp=int(_time.time()) - 60), _jwks_of(key, "k1"))
+
+
+def test_a_token_signed_hs256_is_refused_against_the_rsa_key_set(_configured):
+    """Algorithm confusion, verified for real rather than through a faked decode: a
+    token whose header says HS256 and is signed with the public key's bytes does not
+    verify against the RS256 key set. @verifies REQ-0002"""
+    key = _rsa_key()
+    public_pem = key.public_key().public_bytes(
+        _serialization.Encoding.PEM, _serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    body = {"iss": _ISSUER, "aud": "oauth2_proxy", "sub": "user-1", "exp": int(_time.time()) + 300}
+    try:
+        forged = _jose_jwt.encode(body, public_pem.decode(), algorithm="HS256", headers={"kid": "k1"})
+    except Exception:  # python-jose refuses an asymmetric key as an HMAC secret
+        forged = _jose_jwt.encode(body, "anything", algorithm="HS256", headers={"kid": "k1"})
+    with _pytest.raises(Exception):
+        _verify_jwt(forged, _jwks_of(key, "k1"))

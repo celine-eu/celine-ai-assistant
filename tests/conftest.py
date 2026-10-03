@@ -19,6 +19,11 @@ import os
 # Must run before the first `celine.assistant` import. Do not move below them.
 # ---------------------------------------------------------------------------
 os.environ.setdefault("APP_ENV", "test")
+# The suite runs on development values (header trust, a test database password, no
+# Qdrant key) that the posture guard refuses anywhere but dev. CELINE_ENV wins over
+# APP_ENV. Hardened behaviour is tested with the environment passed in
+# (`tests/unit/test_posture.py`).
+os.environ.setdefault("CELINE_ENV", "dev")
 os.environ["LLM_BASE_URL"] = "http://127.0.0.1:1/v1"
 os.environ["LLM_CHAT_MODEL"] = "test-chat"
 os.environ["LLM_EMBED_MODEL"] = "test-embed"

@@ -37,7 +37,7 @@ With `OAUTH2_TRUST_HEADERS` enabled, `x-auth-request-user` (or `x-auth-request-e
 identifies the caller and `x-auth-request-groups` carries their groups, comma-separated,
 with blank entries dropped. **The switch is off by default**: unless a deployment opts in,
 headers alone are not an identity and a request carrying no verifiable token is answered
-`401`.
+`401`. Outside dev a deployment cannot opt in: startup refuses the switch (REQ-0045).
 
 ### REQ-0004 — administrator status is realm group membership
 

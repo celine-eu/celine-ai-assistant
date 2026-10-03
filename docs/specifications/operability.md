@@ -16,3 +16,26 @@ that collides takes down the handler that was meant to contain the problem.
 
 A test scans every `extra={...}` in `src/` for a collision, so the next one fails a test
 rather than a request.
+
+### REQ-0045 — outside dev, startup refuses every development-only setting
+
+The environment signal is `CELINE_ENV`, then `ENVIRONMENT`, then the legacy `APP_ENV`
+(from the environment, or explicitly from `.env`); the first non-empty one wins. **Only
+`dev` relaxes**: unset, empty, `prod`, `production`, `staging`, `test` or a typo is
+hardened. `APP_ENV`'s own default is not a signal.
+
+Hardened, startup refuses to run — before Qdrant or the database is reached, naming every
+offending setting in one message — while any of these is in force:
+
+- `OAUTH2_TRUST_HEADERS=true`, which makes unverified `x-auth-request-*` headers, groups
+  included, an identity (REQ-0003);
+- `OAUTH2_ISSUER` unset — with `OAUTH2_JWKS_URL` alone the token's `iss` is not checked;
+- `QDRANT_API_KEY` unset;
+- a `DATABASE_URL` carrying a development database password.
+
+In dev the same list is logged as one warning and startup proceeds.
+
+### REQ-0046 — wildcard CORS is served in dev only
+
+`Access-Control-Allow-Origin: *` (with credentials) is configured only when the signal of
+REQ-0045 is `dev`. Anywhere else no cross-origin caller is allowed.

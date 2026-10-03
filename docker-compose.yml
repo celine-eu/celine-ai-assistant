@@ -54,6 +54,10 @@ services:
     env_file:
       - .env
     environment:
+      # Passed through with no default: unset is hardened, and the dev values
+      # (header trust, no Qdrant key, the dev database password) are then refused
+      # at startup. Export CELINE_ENV=dev for a local stack.
+      CELINE_ENV: ${CELINE_ENV:-}
       KB_SOURCES_DIR: /app/data/kb-sources
     volumes:
       - ./data/app:/app/data

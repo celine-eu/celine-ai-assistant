@@ -12,6 +12,7 @@ from .history import HistoryStore
 from .kb_store import KbStore
 from .llm import configuration_problems
 from .logging_ import configure_logging
+from .posture import enforce_posture, is_dev
 from .routes import router
 from .settings import settings
 
@@ -27,6 +28,9 @@ def json_error(status_code: int, detail: str):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # First, before Qdrant or the database is reached: outside CELINE_ENV=dev every
+    # development-only value is refused here, all of them in one message.
+    enforce_posture()
     problems = configuration_problems(settings)
     if problems:
         raise RuntimeError("model configuration: " + "; ".join(problems))
@@ -57,9 +61,11 @@ def create_app():
         lifespan=lifespan,
     )
 
+    # Wildcard origins (with credentials) only in dev. This used to be every
+    # APP_ENV other than exactly "prod" — so "production" or "staging" got it.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.app_env != "prod" else [],
+        allow_origins=["*"] if is_dev() else [],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
