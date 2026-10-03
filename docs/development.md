@@ -63,8 +63,13 @@ src/celine/assistant/
   routes.py                    # All route handlers
   settings.py                  # Pydantic-settings configuration
   auth.py                      # JWT verification (trusted headers or JWKS)
-  rag.py                       # LlamaIndex index, retriever, query engine
-  ingest.py                    # File parsing and Qdrant ingestion
+  rag.py                       # Per-community index, scoped retrieval, writes
+  kb_collections.py            # Knowledge-base aliases, generations, embedding fingerprint
+  kb_sources.py                # Git/directory sources: checkout and incremental indexing
+  kb_store.py                  # Registered sources and their indexed document versions
+  kb_admin.py                  # status, reindex, prune, migrate-legacy
+  attachment_index.py          # Upload extraction and indexing (shared with rebuilds)
+  cli.py                       # `celine-assistant kb …`
   history.py                   # Conversation and message persistence
   uploads.py                   # File upload storage and metadata
   openai_stream.py             # SSE streaming with agentic tool-calling loop
@@ -72,10 +77,6 @@ src/celine/assistant/
   llm.py                       # The model endpoint: clients, embeddings, startup check
   document_processing.py       # MIME detection and text extraction for uploads
   suggestions.py               # Localized prompt suggestions and tool labels
-  training_materials.py        # Training materials indexing
-  training_materials_sync.py   # Git sync for training materials
-  site_docs.py                 # Documentation site content indexing
-  qdrant_setup.py              # Qdrant collection initialization
   models.py                    # Pydantic request/response models
   logging_.py                  # Logging configuration
   skills/
@@ -90,6 +91,6 @@ src/celine/assistant/
     datasets.py                # Dataset queries (currently disabled)
   db/
     engine.py                  # SQLAlchemy async engine setup
-    models.py                  # ORM: Conversation, Message, Attachment
+    models.py                  # ORM: Conversation, Message, Attachment, KbSource, KbSourceDocument
 alembic/                       # Database migrations
 ```

@@ -25,19 +25,21 @@ sanitiser reduces the name to a basename and drops anything outside
 honoured, `@` and `.` are kept because an id is usually an email, and an id that reduces
 to nothing usable is refused rather than coerced.
 
-### REQ-0016 — a user-scoped attachment is reachable only by its owner or an administrator
+### REQ-0016 — a user-scoped attachment is reachable only by its owner or a realm administrator
 
 Reading it, downloading it, deleting it and attaching it to a chat turn all enforce this.
 The tool the model calls answers "not found" rather than "forbidden", because the model
 relays tool output to the user.
 
-### REQ-0017 — a system-scoped attachment is readable by any identified caller
+### REQ-0017 — a system-scoped attachment is readable by the members of its community
 
-That is what the scope is for.
+That is what the scope is for: a manager shared it with their REC (REQ-0005). A member of
+another community, or a caller with none, is refused — by the tool the model calls, as
+"not found". A realm administrator reads any.
 
-### REQ-0018 — a system-scoped attachment is deletable only by an administrator
+### REQ-0018 — a system-scoped attachment is deletable only by a manager of its community or a realm administrator
 
-### REQ-0019 — a listing returns the caller's own attachments and every system one
+### REQ-0019 — a listing returns the caller's own attachments and their community's system ones
 
 ### REQ-0020 — an unknown attachment is not found
 
@@ -52,6 +54,8 @@ is decided by the file's own magic bytes, and only falls back to what the client
 declared. Extraction that yields text is indexed and reported as `indexed`; extraction
 that yields nothing, or fails, leaves the file stored and reported as `stored`.
 
+An upload is recorded with the caller's community (REQ-0040) and indexed into that
+community's knowledge base; with no community it is stored and reported as `stored`.
 An indexed upload is written under a document id derived from its attachment id, and
 **deleting the attachment deletes the row, the blob and the indexed document**. Content
 left retrievable has not been deleted; a storage or vector-store failure is logged and

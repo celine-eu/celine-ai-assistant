@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, cast
 
-from llama_index.core import Document, Settings, StorageContext, VectorStoreIndex
-from llama_index.core.readers import SimpleDirectoryReader
+from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import BaseNode
 from llama_index.core.vector_stores import (
@@ -16,47 +15,76 @@ from llama_index.core.vector_stores import (
 )
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
+from qdrant_client.http import models as qm
 
-from celine.assistant import llm
-from celine.assistant.settings import settings
+from celine.assistant import kb_collections, llm
 
 log = logging.getLogger(__name__)
 
 _index_lock = asyncio.Lock()
-_index: Optional[VectorStoreIndex] = None
+# One index per Qdrant name (an alias, or a generation being rebuilt).
+_indexes: dict[str, VectorStoreIndex] = {}
+_client: QdrantClient | None = None
 
-# The kinds written by the corpus ingesters. These carry no `scope`, and they are
-# readable by every member by design — that is what the curated corpus is.
-CURATED_KINDS = ("training_material", "site_doc")
+# The kind written by the source ingester (`kb_sources.py`). It carries no `scope`: a
+# source is the community's own reference material, readable by all its members.
+CURATED_KINDS = ("kb_source",)
 
 
-def _get_index() -> VectorStoreIndex:
-    global _index
+def qdrant() -> QdrantClient:
+    global _client
+    if _client is None:
+        _client = kb_collections.qdrant_client()
+    return _client
 
-    if _index is None:
-        Settings.embed_model = llm.embed_model()
-        client = QdrantClient(
-            url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=30
-        )
-        vector_store = QdrantVectorStore(
-            client=client,
-            collection_name=settings.qdrant_collection,
-        )
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        _index = VectorStoreIndex.from_vector_store(
+
+def _get_index(name: str) -> VectorStoreIndex:
+    """The index over one Qdrant collection or alias, which must exist."""
+    if name not in _indexes:
+        vector_store = QdrantVectorStore(client=qdrant(), collection_name=name)
+        _indexes[name] = VectorStoreIndex.from_vector_store(
             vector_store=vector_store,
-            storage_context=storage_context,
+            storage_context=StorageContext.from_defaults(vector_store=vector_store),
+            embed_model=llm.embed_model(),
         )
+    return _indexes[name]
 
-    return _index
+
+def reset_indexes() -> None:
+    """Forget cached indexes and client: the embedding settings or target changed."""
+    global _client
+    _indexes.clear()
+    _client = None
 
 
-def visibility_filter(user_id: str | None) -> MetadataFilters:
-    """What `user_id` is allowed to retrieve, as a vector-store filter.
+def _read_target(community_id: str) -> str | None:
+    """The community's alias when it exists. Reading never creates one."""
+    alias = kb_collections.alias_name(community_id)
+    if alias in _indexes or qdrant().collection_exists(alias):
+        return alias
+    return None
 
-    One shared collection holds the curated corpus, administrator-shared files and every
-    member's own uploads (`.agents/knowledge/rag-corpus-isolation.md`). This is the rule
-    that keeps the last of those apart.
+
+def _write_target(community_id: str) -> str:
+    alias = kb_collections.alias_name(community_id)
+    if alias not in _indexes:
+        kb_collections.ensure_alias(qdrant(), community_id)
+    return alias
+
+
+def live_collection(community_id: str) -> str:
+    """The generation the community's alias points at, creating both on first use."""
+    alias = kb_collections.ensure_alias(qdrant(), community_id)
+    return kb_collections.aliases(qdrant())[alias]
+
+
+def visibility_filter(user_id: str | None, community_id: str) -> MetadataFilters:
+    """What `user_id`, a member of `community_id`, may retrieve, as a vector-store filter.
+
+    Each community has a collection of its own (`kb_collections.py`); inside it sit the
+    community's sources, what its managers shared, and every member's own uploads. This
+    is the rule that keeps the last of those apart, and the `community_id` term keeps a
+    point that landed in the wrong collection out.
     """
     allowed: list[Any] = [
         MetadataFilter(key="scope", value="system", operator=FilterOperator.EQ),
@@ -77,17 +105,29 @@ def visibility_filter(user_id: str | None) -> MetadataFilters:
             )
         )
 
-    return MetadataFilters(condition=FilterCondition.OR, filters=allowed)
+    return MetadataFilters(
+        condition=FilterCondition.AND,
+        filters=[
+            MetadataFilter(
+                key="community_id", value=community_id, operator=FilterOperator.EQ
+            ),
+            MetadataFilters(condition=FilterCondition.OR, filters=allowed),
+        ],
+    )
 
 
-def is_visible_to(metadata: dict[str, Any], user_id: str | None) -> bool:
+def is_visible_to(
+    metadata: dict[str, Any], user_id: str | None, community_id: str | None
+) -> bool:
     """The same rule as `visibility_filter`, applied to a node we already have.
 
     Both exist on purpose. The filter is what makes the query efficient and is the real
-    mechanism; it runs inside Qdrant, so no test that does not start Qdrant can prove it
-    works. This one is checkable, runs on every retrieved node, and denies by default —
-    so a filter that silently stops being applied costs results, not confidentiality.
+    mechanism; it runs inside Qdrant. This one runs on every retrieved node and denies
+    by default — so a filter that silently stops being applied costs results, not
+    confidentiality.
     """
+    if not community_id or metadata.get("community_id") != community_id:
+        return False
     scope = metadata.get("scope")
     if scope == "system":
         return True
@@ -96,26 +136,48 @@ def is_visible_to(metadata: dict[str, Any], user_id: str | None) -> bool:
     return metadata.get("kind") in CURATED_KINDS
 
 
-def build_retriever(top_k: int = 5, *, user_id: str | None) -> BaseRetriever:
-    """`user_id` is keyword-only and has no default, so forgetting it is a TypeError
-    rather than an unfiltered query.
+def build_retriever(
+    top_k: int = 5, *, user_id: str | None, community_id: str | None
+) -> BaseRetriever | None:
+    """None when there is nothing the caller may read: no community, or no knowledge
+    base built for it yet.
+
+    `user_id` and `community_id` are keyword-only with no default, so forgetting one is
+    a TypeError rather than an unfiltered query.
     """
-    idx = _get_index()
-    return idx.as_retriever(
-        similarity_top_k=top_k, filters=visibility_filter(user_id)
+    if not community_id:
+        return None
+    try:
+        target = _read_target(community_id)
+    except kb_collections.InvalidCommunityId:
+        log.error("kb_unusable_community_id", extra={"community": community_id})
+        return None
+    if target is None:
+        return None
+    return _get_index(target).as_retriever(
+        similarity_top_k=top_k, filters=visibility_filter(user_id, community_id)
     )
 
 
 def retrieve(
-    retriever: BaseRetriever, query: str, top_k: int, *, user_id: str | None
+    retriever: BaseRetriever | None,
+    query: str,
+    top_k: int,
+    *,
+    user_id: str | None,
+    community_id: str | None,
 ) -> List[BaseNode]:
+    if retriever is None:
+        return []
     try:
         setattr(retriever, "similarity_top_k", top_k)
     except Exception:
         pass
     nodes = retriever.retrieve(query)
     visible = [
-        n for n in nodes if is_visible_to(getattr(n, "metadata", {}) or {}, user_id)
+        n
+        for n in nodes
+        if is_visible_to(getattr(n, "metadata", {}) or {}, user_id, community_id)
     ]
     if len(visible) != len(nodes):
         log.warning(
@@ -134,33 +196,78 @@ def attachment_doc_id(attachment_id: str) -> str:
     return f"attachment:{attachment_id}"
 
 
+def _delete_ref_doc(name: str, doc_id: str) -> None:
+    # The vector store rather than `index.delete_ref_doc`, which wants a docstore this
+    # index does not have — it is built `from_vector_store`.
+    _get_index(name).vector_store.delete(doc_id)
+
+
 async def upsert_documents_from_text(
-    *, text: str, metadata: dict[str, Any], doc_id: str | None = None
+    *,
+    community_id: str,
+    text: str,
+    metadata: dict[str, Any],
+    doc_id: str | None = None,
+    collection: str | None = None,
 ) -> dict[str, Any]:
+    """Index one document into the community's knowledge base.
+
+    `collection` names a generation being rebuilt instead of the live alias. With a
+    `doc_id`, whatever was indexed under it before is replaced rather than duplicated.
+    """
     if not text.strip():
         return {"inserted": 0}
 
     async with _index_lock:
-        idx = _get_index()
-        doc = Document(text=text, metadata=dict(metadata))
+        target = collection or await asyncio.to_thread(_write_target, community_id)
+        doc = Document(text=text, metadata={**metadata, "community_id": community_id})
         if doc_id:
             doc.id_ = doc_id
-        _insert_into_index(idx, [doc])
+            await asyncio.to_thread(_delete_ref_doc, target, doc_id)
+        await asyncio.to_thread(_get_index(target).insert, doc)
         return {"inserted": 1}
 
 
-async def delete_document(doc_id: str) -> None:
-    """Remove every node derived from one document.
-
-    Goes to the vector store rather than `index.delete_ref_doc`, which wants a docstore
-    this index does not have — it is built `from_vector_store`.
-
-    Documents indexed before document ids were derived (2026-08-15) carry generated ones
-    and are not reachable this way; clearing those needs a reindex.
-    """
+async def delete_document(
+    doc_id: str, *, community_id: str, collection: str | None = None
+) -> None:
+    """Remove every node derived from one document."""
     async with _index_lock:
-        idx = _get_index()
-        await asyncio.to_thread(idx.vector_store.delete, doc_id)
+        target = collection or await asyncio.to_thread(_read_target, community_id)
+        if target is None:
+            return
+        await asyncio.to_thread(_delete_ref_doc, target, doc_id)
+
+
+def count_points(name: str) -> int:
+    return qdrant().count(name, exact=True).count
+
+
+def indexed_values(name: str, key: str) -> set[str]:
+    """Every distinct value of one payload field in a collection."""
+    values: set[str] = set()
+    offset = None
+    while True:
+        points, offset = qdrant().scroll(
+            name, limit=256, offset=offset, with_payload=[key], with_vectors=False
+        )
+        for p in points:
+            value = (p.payload or {}).get(key)
+            if isinstance(value, str):
+                values.add(value)
+        if offset is None:
+            return values
+
+
+def delete_where(name: str, key: str, value: str) -> None:
+    qdrant().delete(
+        name,
+        points_selector=qm.FilterSelector(
+            filter=qm.Filter(
+                must=[qm.FieldCondition(key=key, match=qm.MatchValue(value=value))]
+            )
+        ),
+    )
 
 
 def _node_text(node: BaseNode) -> str:
@@ -206,54 +313,3 @@ def node_to_source(node: BaseNode) -> Dict[str, Any]:
         "metadata": meta,
     }
 
-
-def _insert_into_index(index: VectorStoreIndex, docs: list[Document]) -> None:
-    ix: Any = index
-
-    fn = getattr(ix, "insert_documents", None)
-    if callable(fn):
-        fn(docs)
-        return
-
-    fn = getattr(ix, "add_documents", None)
-    if callable(fn):
-        fn(docs)
-        return
-
-    fn = getattr(ix, "insert", None)
-    if callable(fn):
-        for d in docs:
-            fn(d)
-        return
-
-    raise RuntimeError(
-        "VectorStoreIndex has no supported insert method (insert_documents/add_documents/insert)"
-    )
-
-
-async def upsert_documents_from_file(
-    *, local_path: str, metadata: Dict[str, Any]
-) -> Dict[str, Any]:
-    if not os.path.exists(local_path):
-        raise FileNotFoundError(local_path)
-
-    async with _index_lock:
-        idx = _get_index()
-        docs = await asyncio.to_thread(_read_file_as_documents, local_path, metadata)
-        if not docs:
-            return {"inserted": 0}
-
-        _insert_into_index(idx, docs)
-        return {"inserted": len(docs)}
-
-
-def _read_file_as_documents(path: str, metadata: Dict[str, Any]) -> List[Document]:
-    reader = SimpleDirectoryReader(input_files=[path])
-    loaded = reader.load_data()
-
-    out: List[Document] = []
-    for d in loaded:
-        base_meta = dict(getattr(d, "metadata", {}) or {})
-        base_meta.update(metadata)
-        out.append(Document(text=d.text, metadata=base_meta))
-    return out

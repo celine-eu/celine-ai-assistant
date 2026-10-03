@@ -50,10 +50,9 @@ COPY --from=builder --chown=appuser:appuser /app /app
 # - /app/data  → persistence.data.mountPath  (SQLite / local cache)
 # - /app/qdrant → persistence.qdrant.mountPath (vector store)
 # - /app/policies → policies.dir (OPA/Regorus policy files baked into image)
-
-# - /app/training-materials → local git checkout of celine-training-materials
-RUN mkdir -p /app/data /app/qdrant /app/policies /app/training-materials \
-    && chown -R appuser:appuser /app/data /app/qdrant /app/policies /app/training-materials
+# Knowledge sources are cloned under /app/data/kb-sources (KB_SOURCES_DIR), on the volume.
+RUN mkdir -p /app/data /app/qdrant /app/policies \
+    && chown -R appuser:appuser /app/data /app/qdrant /app/policies
 
 USER appuser
 

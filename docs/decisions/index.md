@@ -45,6 +45,7 @@ edited to say something else.
 | [ADR-0005](ADR-0005-skills-are-built-per-request.md) | the skill registry is built per request from the caller's token | accepted |
 | [ADR-0006](ADR-0006-requirements-carry-identifiers.md) | requirements carry identifiers and tests declare them | accepted |
 | [ADR-0007](ADR-0007-the-database-layer-is-tested-on-sqlite.md) | the store's SQL is tested on SQLite by default and PostgreSQL in CI | accepted |
+| [ADR-0008](ADR-0008-one-knowledge-base-per-community.md) | one knowledge base per community, behind an alias per embedding model | accepted |
 
 ADR-0003, ADR-0004 and ADR-0005 were written on 2026-08-15 and record decisions the code
 had already embodied for some time. They are dated by when they were written down, not by

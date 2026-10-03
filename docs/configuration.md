@@ -63,16 +63,27 @@ collection until they are uploaded again.
 | `OAUTH2_ALGORITHMS` | `list[str]` | `["RS256"]` | Accepted signature algorithms. Pinned, not read from the token header |
 | `OAUTH2_AUDIENCE` | `str?` | `oauth2_proxy` | Expected JWT audience |
 | `OAUTH2_JWT_COOKIE_NAME` | `str?` | — | Optional JWT cookie name |
-| `ADMIN_GROUP` | `str` | `admins` | Group name for admin access |
+| `ADMIN_GROUP` | `str` | `admins` | Realm group for administrator access. Read from the top-level `groups` claim only — a group inside an organization never makes a realm administrator |
+| `REC_ORGANIZATION_TYPE` | `str` | `rec` | Organization type marking a REC in the token's `organization` claim; its alias is the caller's community |
+| `REC_MANAGER_GROUPS` | `list[str]` | `["managers", "admins"]` | Groups inside a REC's own organization that may share documents with it and sync its sources |
 
-## Training Materials
+## Knowledge bases
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `TRAINING_MATERIALS_PATH` | `str` | `/workspace/repositories/celine-training-materials` | Local checkout path for training materials |
-| `TRAINING_MATERIALS_REPO_URL` | `str` | — | Git URL to clone/pull training materials |
-| `TRAINING_MATERIALS_REF` | `str` | `origin/main` | Git ref checked out before ingestion |
-| `TRAINING_MATERIALS_SYNC_ON_START` | `bool` | `true` | Auto-sync training materials on startup |
+| `QDRANT_COLLECTION` | `str` | `celine_docs` | Prefix of every knowledge-base alias, `<prefix>__<community_id>__<fingerprint>`. Before 2026-10-02 the one collection; `kb migrate-legacy` moves it |
+| `KB_SOURCES_DIR` | `str` | `./data/kb-sources` | Where git sources are cloned, one directory per source |
+| `KB_SYNC_ON_START` | `bool` | `false` | Sync every registered source when the service starts |
+| `KB_GIT_TOKEN` | `str` | — | Token for cloning private git sources over HTTPS (GitHub: fine-grained, read-only Contents). Sent as a header to `KB_GIT_TOKEN_HOST` only; never stored |
+| `KB_GIT_TOKEN_HOST` | `str` | `github.com` | The host the token is sent to |
+
+Sources themselves are not configuration: they are registered per community with
+`celine-assistant kb source add` and stored in the database.
+
+**No longer read** — reported at startup when set: `TRAINING_MATERIALS_PATH`,
+`TRAINING_MATERIALS_REPO_URL`, `TRAINING_MATERIALS_REF`,
+`TRAINING_MATERIALS_SYNC_ON_START`, `MANIFEST_PATH`, `INGEST_ENABLE`,
+`INGEST_FORCE_RELOAD_ON_START`, `DOCS_POLL_INTERVAL_SECONDS`.
 
 ## Uploads and Ingestion
 
@@ -80,10 +91,6 @@ collection until they are uploaded again.
 |---|---|---|---|
 | `UPLOADS_URI` | `str` | `file://./data/uploads` | Upload storage URI |
 | `MAX_UPLOAD_MB` | `int` | `25` | Maximum upload file size in MB |
-| `INGEST_ENABLE` | `bool` | `true` | Enable RAG ingestion |
-| `INGEST_FORCE_RELOAD_ON_START` | `bool` | `false` | Force re-ingest all documents on startup |
-| `MANIFEST_PATH` | `str` | `/app/data/manifest.json` | Manifest file for tracking ingested documents |
-| `DOCS_POLL_INTERVAL_SECONDS` | `int` | `60` | Polling interval for document changes |
 
 ## Service URLs
 

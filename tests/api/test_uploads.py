@@ -14,8 +14,10 @@ from PIL import Image
 
 from fastapi import HTTPException
 
+from celine.assistant import attachment_index
 from celine.assistant import routes as routes_module
 from celine.assistant.settings import settings
+from tests.conftest import COMMUNITY, OTHER_COMMUNITY
 
 
 @pytest.fixture
@@ -35,13 +37,20 @@ def upload_env(tmp_path, monkeypatch):
             raise RuntimeError("markitdown cannot read this")
         return state.get("extract_returns", "Total due: 42 EUR")
 
-    async def _upsert(*, text, metadata, doc_id=None):
-        state["indexed"].append({"text": text, "metadata": metadata, "doc_id": doc_id})
+    async def _upsert(*, community_id, text, metadata, doc_id=None, collection=None):
+        state["indexed"].append(
+            {
+                "community_id": community_id,
+                "text": text,
+                "metadata": metadata,
+                "doc_id": doc_id,
+            }
+        )
         return {"inserted": 1}
 
-    monkeypatch.setattr(routes_module, "describe_image", _describe_image)
-    monkeypatch.setattr(routes_module, "extract_text", _extract_text)
-    monkeypatch.setattr(routes_module, "upsert_documents_from_text", _upsert)
+    monkeypatch.setattr(attachment_index, "describe_image", _describe_image)
+    monkeypatch.setattr(attachment_index, "extract_text", _extract_text)
+    monkeypatch.setattr(attachment_index, "upsert_documents_from_text", _upsert)
     return state
 
 
@@ -62,9 +71,9 @@ async def upload(client, headers, name, data, content_type, path="/upload"):
 
 # @verifies REQ-0021
 async def test_an_image_is_captioned_and_indexed(
-    client, history, user_headers, upload_env
+    client, history, member_headers, upload_env
 ):
-    r = await upload(client, user_headers, "meter.png", png(), "image/png")
+    r = await upload(client, member_headers, "meter.png", png(), "image/png")
 
     body = r.json()
     assert r.status_code == 200
@@ -82,9 +91,9 @@ async def test_an_image_is_captioned_and_indexed(
 
 # @verifies REQ-0021
 async def test_a_document_is_text_extracted_and_indexed(
-    client, user_headers, upload_env
+    client, member_headers, upload_env
 ):
-    r = await upload(client, user_headers, "bill.pdf", b"%PDF-1.7 ...", "application/pdf")
+    r = await upload(client, member_headers, "bill.pdf", b"%PDF-1.7 ...", "application/pdf")
 
     assert r.json()["caption"] is None
     (indexed,) = upload_env["indexed"]
@@ -93,14 +102,14 @@ async def test_a_document_is_text_extracted_and_indexed(
 
 
 async def test_the_sniffed_type_beats_the_declared_one(
-    client, user_headers, upload_env
+    client, member_headers, upload_env
 ):
     """Browsers routinely declare `application/octet-stream`, and some declare the
     wrong thing outright. The magic bytes decide; the declared type is the fallback.
 
     @verifies REQ-0021
     """
-    await upload(client, user_headers, "mystery.bin", png(), "application/octet-stream")
+    await upload(client, member_headers, "mystery.bin", png(), "application/octet-stream")
 
     assert upload_env["described"] == [None]
     assert upload_env["extracted"] == []
@@ -108,14 +117,14 @@ async def test_the_sniffed_type_beats_the_declared_one(
 
 # @verifies REQ-0021
 async def test_an_extension_alone_is_enough_to_treat_a_file_as_an_image(
-    client, user_headers, upload_env
+    client, member_headers, upload_env
 ):
-    await upload(client, user_headers, "photo.jpeg", b"not really an image", None)
+    await upload(client, member_headers, "photo.jpeg", b"not really an image", None)
     assert upload_env["described"] == [None]
 
 
 async def test_a_file_nothing_can_read_is_stored_not_indexed(
-    client, history, user_headers, upload_env
+    client, history, member_headers, upload_env
 ):
     """Failing the upload would lose the file over a parser's opinion. It is kept, and
     reported as `stored` so the caller knows it will not be searchable.
@@ -128,7 +137,7 @@ async def test_a_file_nothing_can_read_is_stored_not_indexed(
     """
     upload_env["extract_raises"] = True
 
-    r = await upload(client, user_headers, "archive.zip", b"PK\x03\x04", "application/zip")
+    r = await upload(client, member_headers, "archive.zip", b"PK\x03\x04", "application/zip")
 
     assert r.status_code == 200
     assert r.json()["status"] == "stored"
@@ -138,11 +147,11 @@ async def test_a_file_nothing_can_read_is_stored_not_indexed(
 
 # @verifies REQ-0021
 async def test_an_empty_extraction_is_stored_not_indexed(
-    client, user_headers, upload_env
+    client, member_headers, upload_env
 ):
     upload_env["extract_returns"] = ""
 
-    r = await upload(client, user_headers, "blank.docx", b"PK\x03\x04", None)
+    r = await upload(client, member_headers, "blank.docx", b"PK\x03\x04", None)
 
     assert r.json()["status"] == "stored"
     assert upload_env["indexed"] == []
@@ -152,7 +161,7 @@ async def test_an_empty_extraction_is_stored_not_indexed(
 
 
 async def test_the_owner_is_recorded_in_the_index_metadata(
-    client, user_headers, upload_env
+    client, member_headers, upload_env
 ):
     """`scope` and `owner_user_id` are what `rag.visibility_filter` and
     `rag.is_visible_to` read back. Writing them and not reading them is what made every
@@ -160,7 +169,7 @@ async def test_the_owner_is_recorded_in_the_index_metadata(
 
     @verifies REQ-0021 @verifies REQ-0022
     """
-    await upload(client, user_headers, "bill.pdf", b"%PDF-1.7", "application/pdf")
+    await upload(client, member_headers, "bill.pdf", b"%PDF-1.7", "application/pdf")
 
     (indexed,) = upload_env["indexed"]
     assert indexed["metadata"]["scope"] == "user"
@@ -169,7 +178,7 @@ async def test_the_owner_is_recorded_in_the_index_metadata(
 
 
 async def test_an_uploaded_document_is_indexed_under_a_derived_id(
-    client, history, user_headers, upload_env
+    client, history, member_headers, upload_env
 ):
     """A generated document id would leave the index entry unreachable when the
     attachment is deleted. Deriving it from the attachment id is what makes the deletion
@@ -178,7 +187,7 @@ async def test_an_uploaded_document_is_indexed_under_a_derived_id(
     @verifies REQ-0021
     """
     body = (
-        await upload(client, user_headers, "bill.pdf", b"%PDF-1.7", "application/pdf")
+        await upload(client, member_headers, "bill.pdf", b"%PDF-1.7", "application/pdf")
     ).json()
 
     (indexed,) = upload_env["indexed"]
@@ -186,8 +195,8 @@ async def test_an_uploaded_document_is_indexed_under_a_derived_id(
 
 
 # @verifies REQ-0015
-async def test_a_stored_file_lands_under_its_owner(client, user_headers, upload_env):
-    body = (await upload(client, user_headers, "my bill.pdf", b"%PDF", "application/pdf")).json()
+async def test_a_stored_file_lands_under_its_owner(client, member_headers, upload_env):
+    body = (await upload(client, member_headers, "my bill.pdf", b"%PDF", "application/pdf")).json()
 
     assert "/alice/" in body["uri"]
     assert body["filename"] == "my_bill.pdf"
@@ -198,18 +207,18 @@ async def test_a_stored_file_lands_under_its_owner(client, user_headers, upload_
 
 # @verifies REQ-0014
 async def test_an_oversized_upload_is_refused(
-    client, user_headers, upload_env, monkeypatch
+    client, member_headers, upload_env, monkeypatch
 ):
     monkeypatch.setattr(settings, "max_upload_mb", 1)
 
-    r = await upload(client, user_headers, "big.bin", b"x" * (1024 * 1024 + 1), None)
+    r = await upload(client, member_headers, "big.bin", b"x" * (1024 * 1024 + 1), None)
 
     assert r.status_code == 413
     assert "max 1MB" in r.json()["detail"]
 
 
 async def test_the_limit_never_drops_below_one_megabyte(
-    client, user_headers, upload_env, monkeypatch
+    client, member_headers, upload_env, monkeypatch
 ):
     """`max(1, ...)` means a misconfigured `MAX_UPLOAD_MB=0` still accepts a megabyte
     rather than refusing everything.
@@ -218,7 +227,7 @@ async def test_the_limit_never_drops_below_one_megabyte(
     """
     monkeypatch.setattr(settings, "max_upload_mb", 0)
 
-    r = await upload(client, user_headers, "small.bin", b"x" * 1024, None)
+    r = await upload(client, member_headers, "small.bin", b"x" * 1024, None)
     assert r.status_code == 200
 
 
@@ -253,33 +262,152 @@ async def test_the_body_is_read_in_chunks_and_abandoned_at_the_limit(monkeypatch
     assert body.served <= 2 * 1024 * 1024
 
 
+# --- the community --------------------------------------------------------
+
+
+async def test_a_member_s_upload_is_indexed_into_their_community(
+    client, history, member_headers, upload_env
+):
+    """The community comes from the token, never from the request.
+
+    @verifies REQ-0021 @verifies REQ-0040
+    """
+    body = (
+        await upload(client, member_headers, "bill.pdf", b"%PDF-1.7", "application/pdf")
+    ).json()
+
+    assert body["community_id"] == COMMUNITY
+    assert (await history.get_attachment_any(body["attachment_id"]))["community_id"] == COMMUNITY
+    (indexed,) = upload_env["indexed"]
+    assert indexed["community_id"] == COMMUNITY
+
+
+async def test_without_a_community_an_upload_is_stored_not_indexed(
+    client, history, user_headers, upload_env
+):
+    """A caller with no REC can still attach a file to a turn; there is no knowledge
+    base to put it in.
+
+    @verifies REQ-0040
+    """
+    r = await upload(client, user_headers, "bill.pdf", b"%PDF-1.7", "application/pdf")
+
+    assert r.status_code == 200
+    assert r.json()["status"] == "stored"
+    assert r.json()["community_id"] is None
+    assert upload_env["indexed"] == []
+
+
+async def test_a_member_of_two_communities_is_refused_before_anything_is_stored(
+    client, history, tokens, upload_env
+):
+    """Choosing one would answer from one REC's documents to a member of another.
+
+    @verifies REQ-0040
+    """
+    headers = tokens.issue(
+        "eve",
+        organizations={
+            COMMUNITY: {"type": ["rec"]},
+            OTHER_COMMUNITY: {"type": ["rec"]},
+        },
+    )
+
+    r = await upload(client, headers, "bill.pdf", b"%PDF-1.7", "application/pdf")
+
+    assert r.status_code == 403
+    assert history.attachments == {}
+
+
+async def test_an_organization_that_is_not_a_rec_is_not_a_community(
+    client, tokens, upload_env
+):
+    """@verifies REQ-0040"""
+    headers = tokens.issue("frank", organizations={"example-dso": {"type": ["dso"]}})
+
+    body = (await upload(client, headers, "bill.pdf", b"%PDF", "application/pdf")).json()
+
+    assert body["community_id"] is None
+
+
 # --- system uploads ---------------------------------------------------------
 
 
-# @verifies REQ-0005
-async def test_a_system_upload_requires_an_administrator(
-    client, user_headers, admin_headers, upload_env
-):
-    assert (
-        await upload(
-            client, user_headers, "shared.pdf", b"%PDF", "application/pdf", "/admin/uploads"
-        )
-    ).status_code == 403
-
-    r = await upload(
-        client, admin_headers, "shared.pdf", b"%PDF", "application/pdf", "/admin/uploads"
+async def shared(client, headers, community_id=None):
+    data = {"community_id": community_id} if community_id else None
+    return await client.post(
+        "/admin/uploads",
+        headers=headers,
+        files={"file": ("shared.pdf", b"%PDF", "application/pdf")},
+        data=data,
     )
+
+
+# @verifies REQ-0005
+async def test_a_member_cannot_share_with_the_community(
+    client, member_headers, upload_env
+):
+    assert (await shared(client, member_headers)).status_code == 403
+
+
+# @verifies REQ-0005
+async def test_a_manager_shares_with_their_own_community(
+    client, manager_headers, upload_env
+):
+    r = await shared(client, manager_headers)
+
     assert r.status_code == 200
     assert r.json()["scope"] == "system"
+    assert r.json()["community_id"] == COMMUNITY
+    assert upload_env["indexed"][0]["community_id"] == COMMUNITY
+
+
+async def test_a_manager_cannot_share_with_another_community(
+    client, manager_headers, upload_env
+):
+    """A `managers` group inside one REC's organization says nothing about another.
+
+    @verifies REQ-0005
+    """
+    assert (await shared(client, manager_headers, OTHER_COMMUNITY)).status_code == 403
+    assert upload_env["indexed"] == []
+
+
+async def test_an_admins_group_inside_a_rec_is_not_a_realm_administrator(
+    client, tokens, upload_env
+):
+    """`extract_groups` merges every organization's groups into one list; read that
+    way, `admins` inside one REC made its holder an administrator of all of them.
+
+    @verifies REQ-0005
+    """
+    headers = tokens.issue("grace", community=COMMUNITY, org_groups=("admins",))
+
+    assert (await shared(client, headers)).status_code == 200
+    assert (await shared(client, headers, OTHER_COMMUNITY)).status_code == 403
+
+
+# @verifies REQ-0005
+async def test_a_realm_administrator_names_the_community(
+    client, admin_headers, upload_env
+):
+    assert (await shared(client, admin_headers)).status_code == 400
+
+    r = await shared(client, admin_headers, OTHER_COMMUNITY)
+    assert r.status_code == 200
+    assert r.json()["community_id"] == OTHER_COMMUNITY
+
+
+# @verifies REQ-0005
+async def test_a_community_id_that_cannot_name_a_knowledge_base_is_refused(
+    client, admin_headers, upload_env
+):
+    assert (await shared(client, admin_headers, "Not A Name")).status_code == 400
 
 
 # @verifies REQ-0017
-async def test_a_system_upload_has_no_owner(client, admin_headers, upload_env):
-    body = (
-        await upload(
-            client, admin_headers, "shared.pdf", b"%PDF", "application/pdf", "/admin/uploads"
-        )
-    ).json()
+async def test_a_system_upload_has_no_owner(client, manager_headers, upload_env):
+    body = (await shared(client, manager_headers)).json()
 
     assert "/_system/" in body["uri"]
     assert upload_env["indexed"][0]["metadata"]["owner_user_id"] is None

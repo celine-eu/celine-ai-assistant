@@ -14,9 +14,12 @@ class DocumentSkill(Skill):
     name = "documents"
     description = "Search and retrieve uploaded documents."
 
-    def __init__(self, *, history_store: Any, user_id: str = "") -> None:
+    def __init__(
+        self, *, history_store: Any, user_id: str = "", community_id: str | None = None
+    ) -> None:
         self._history = history_store
         self._user_id = user_id
+        self._community_id = community_id
 
     def get_tools(self) -> list[dict[str, Any]]:
         return [
@@ -26,8 +29,8 @@ class DocumentSkill(Skill):
                     "name": "search_documents",
                     "description": (
                         "Search the knowledge base for documents matching a query. "
-                        "Returns relevant snippets from uploaded files, training materials, "
-                        "and indexed documents."
+                        "Returns relevant snippets from uploaded files and the "
+                        "community's reference material."
                     ),
                     "parameters": {
                         "type": "object",
@@ -102,9 +105,19 @@ class DocumentSkill(Skill):
         if on_progress:
             await on_progress(f"Searching documents for: {query}")
 
-        retriever = build_retriever(top_k, user_id=self._user_id)
+        retriever = await asyncio.to_thread(
+            build_retriever,
+            top_k,
+            user_id=self._user_id,
+            community_id=self._community_id,
+        )
         nodes = await asyncio.to_thread(
-            retrieve, retriever, query, top_k, user_id=self._user_id
+            retrieve,
+            retriever,
+            query,
+            top_k,
+            user_id=self._user_id,
+            community_id=self._community_id,
         )
         results = [node_to_source(n) for n in nodes]
 
@@ -131,7 +144,15 @@ class DocumentSkill(Skill):
         if not att:
             return json.dumps({"error": "Attachment not found."})
 
+        # Same sentence for "not yours": the model relays it, and "forbidden" would
+        # confirm the id exists.
         if att["scope"] == "user" and att.get("owner_user_id") != self._user_id:
+            return json.dumps({"error": "Attachment not found."})
+        if att["scope"] == "system" and (
+            not self._community_id or att.get("community_id") != self._community_id
+        ):
+            return json.dumps({"error": "Attachment not found."})
+        if att["scope"] not in ("user", "system"):
             return json.dumps({"error": "Attachment not found."})
 
         return json.dumps({
@@ -150,6 +171,6 @@ class DocumentSkill(Skill):
             "**Documents** (`search_documents`, `get_attachment_info`): "
             "Use `search_documents` to find relevant information in the knowledge base "
             "when the user asks questions that may be answered by uploaded documents or "
-            "training materials. Use `get_attachment_info` to inspect a specific "
+            "the community's reference material. Use `get_attachment_info` to inspect a specific "
             "uploaded file's metadata and extracted text."
         )

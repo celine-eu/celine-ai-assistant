@@ -35,7 +35,9 @@ class HealthResponse(BaseModel):
     status: str = "ok"
 
 
-class TrainingMaterialsSyncRequest(BaseModel):
-    target_ref: str | None = Field(
-        default=None, description="Git commit SHA, tag, or ref to sync"
+class KbSyncRequest(BaseModel):
+    community_id: str | None = Field(
+        default=None,
+        description="The community whose sources to sync; a REC manager's own by default",
     )
+    full: bool = Field(default=False, description="Re-embed every document")

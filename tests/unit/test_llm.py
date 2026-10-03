@@ -1,4 +1,4 @@
-"""`llm.py` and the collection check in `qdrant_setup.py`.
+"""`llm.py`. The collection check moved to `kb_collections.py`; see `test_kb_collections.py`.
 
 The endpoint is configuration a deployment has to state; these tests hold the parts
 that make an unstated or stale one fail at startup rather than send members' messages
@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from celine.assistant import llm, qdrant_setup
+from celine.assistant import llm
 from celine.assistant.settings import Settings, settings
 
 
@@ -126,47 +126,3 @@ def test_the_dimensions_come_from_configuration_or_one_probe(monkeypatch):
     monkeypatch.setattr(settings, "llm_embed_dimensions", None)
     probe = SimpleNamespace(get_text_embedding=lambda text: [0.0] * 768)
     assert llm.embedding_dimensions(probe) == 768
-
-
-# ── ensure_collection ─────────────────────────────────────────────
-
-
-class _FakeQdrant:
-    def __init__(self, existing: dict[str, int]):
-        self.existing = existing
-        self.created: dict[str, int] = {}
-
-    def get_collections(self):
-        return SimpleNamespace(collections=[SimpleNamespace(name=n) for n in self.existing])
-
-    def get_collection(self, name):
-        vectors = SimpleNamespace(size=self.existing[name])
-        return SimpleNamespace(config=SimpleNamespace(params=SimpleNamespace(vectors=vectors)))
-
-    def create_collection(self, *, collection_name, vectors_config):
-        self.created[collection_name] = vectors_config.size
-
-
-@pytest.fixture
-def collection(monkeypatch):
-    monkeypatch.setattr(settings, "qdrant_collection", "docs")
-    monkeypatch.setattr(settings, "llm_embed_model", "embed")
-    monkeypatch.setattr(settings, "llm_embed_dimensions", 1024)
-
-
-def test_a_new_collection_is_created_at_the_models_size(collection):
-    client = _FakeQdrant({})
-    qdrant_setup.ensure_collection(client)
-    assert client.created == {"docs": 1024}
-
-
-def test_an_existing_collection_of_the_right_size_is_kept(collection):
-    client = _FakeQdrant({"docs": 1024})
-    qdrant_setup.ensure_collection(client)
-    assert client.created == {}
-
-
-def test_a_collection_built_for_another_model_refuses_startup(collection):
-    """The 1536-dimension collection the OpenAI model built, met by a new model."""
-    with pytest.raises(RuntimeError, match="QDRANT_COLLECTION"):
-        qdrant_setup.ensure_collection(_FakeQdrant({"docs": 1536}))

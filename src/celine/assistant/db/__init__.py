@@ -1,5 +1,5 @@
 from .engine import AsyncSessionLocal, engine
-from .models import Attachment, Base, Conversation, Message
+from .models import Attachment, Base, Conversation, KbSource, KbSourceDocument, Message
 
 __all__ = [
     "engine",
@@ -8,4 +8,6 @@ __all__ = [
     "Conversation",
     "Message",
     "Attachment",
+    "KbSource",
+    "KbSourceDocument",
 ]

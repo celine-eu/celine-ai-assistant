@@ -22,10 +22,15 @@ def build_skill_registry(
     user_id: str,
     settings: Settings,
     history_store: Any,
+    community_id: str | None = None,
 ) -> SkillRegistry:
     registry = SkillRegistry()
 
-    registry.register(DocumentSkill(history_store=history_store, user_id=user_id))
+    registry.register(
+        DocumentSkill(
+            history_store=history_store, user_id=user_id, community_id=community_id
+        )
+    )
 
     if user_token and settings.digital_twin_api_url:
         registry.register(

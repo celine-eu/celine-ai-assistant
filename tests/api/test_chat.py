@@ -13,7 +13,10 @@ import pytest
 
 from celine.assistant import routes as routes_module
 from tests.conftest import (
+    COMMUNITY,
+    NEIGHBOUR_ID,
     OTHER_USER_ID,
+    OTHER_COMMUNITY,
     USER_ID,
     curated_node,
     system_node,
@@ -176,18 +179,18 @@ async def test_an_empty_answer_is_not_persisted(
 
 # @verifies REQ-0022
 async def test_retrieved_chunks_are_offered_as_citations(
-    client, user_headers, fake_llm, fake_retrieval
+    client, member_headers, fake_llm, fake_retrieval
 ):
     fake_retrieval([system_node("Solar converts light.", title="Solar", source="s1")])
 
-    r = await chat(client, user_headers, message="what is solar?")
+    r = await chat(client, member_headers, message="what is solar?")
     sources = dict(sse(r))["sources"]
 
     assert [s["title"] for s in sources] == ["Solar"]
 
 
 async def test_hidden_chunks_are_withheld_from_the_client_but_given_to_the_model(
-    client, user_headers, fake_llm, fake_retrieval
+    client, member_headers, fake_llm, fake_retrieval
 ):
     """Training material is indexed with `hidden`, because a citation of an internal
     document is not something the reader can follow. It is still context.
@@ -201,7 +204,7 @@ async def test_hidden_chunks_are_withheld_from_the_client_but_given_to_the_model
         ]
     )
 
-    r = await chat(client, user_headers, message="tell me")
+    r = await chat(client, member_headers, message="tell me")
 
     assert [s["title"] for s in dict(sse(r))["sources"]] == ["Public"]
     assert [b["title"] for b in fake_llm["context_blocks"]] == ["Public", "Internal"]
@@ -209,17 +212,17 @@ async def test_hidden_chunks_are_withheld_from_the_client_but_given_to_the_model
 
 # @verifies REQ-0024
 async def test_retrieval_is_skipped_for_an_empty_message(
-    client, user_headers, fake_llm, fake_retrieval
+    client, member_headers, fake_llm, fake_retrieval
 ):
     fake_retrieval([curated_node("never asked for", title="X")])
 
-    r = await chat(client, user_headers, message="   ")
+    r = await chat(client, member_headers, message="   ")
 
     assert dict(sse(r))["sources"] == []
 
 
 async def test_another_member_s_upload_reaches_neither_the_client_nor_the_model(
-    client, user_headers, fake_llm, fake_retrieval
+    client, member_headers, fake_llm, fake_retrieval
 ):
     """One collection holds the curated corpus, shared files and every member's own
     uploads. Nothing but the scoping rule keeps the last of those apart — and until it
@@ -231,7 +234,7 @@ async def test_another_member_s_upload_reaches_neither_the_client_nor_the_model(
         [
             user_node(
                 "Document content for bill.pdf:\nTotal due 412 EUR",
-                OTHER_USER_ID,
+                NEIGHBOUR_ID,
                 title="bill.pdf",
             ),
             user_node("My own meter reading", USER_ID, title="mine.pdf"),
@@ -239,7 +242,7 @@ async def test_another_member_s_upload_reaches_neither_the_client_nor_the_model(
         ]
     )
 
-    r = await chat(client, user_headers, message="what do you know about bills?")
+    r = await chat(client, member_headers, message="what do you know about bills?")
 
     titles = [s["title"] for s in dict(sse(r))["sources"]]
     assert titles == ["mine.pdf", "Handbook"]
@@ -247,7 +250,7 @@ async def test_another_member_s_upload_reaches_neither_the_client_nor_the_model(
 
 
 async def test_the_caller_id_reaches_the_retriever(
-    client, user_headers, fake_llm, fake_retrieval
+    client, member_headers, fake_llm, fake_retrieval
 ):
     """The filter itself runs inside Qdrant, where no serviceless test can watch it.
     What is checkable is that the identity it needs was passed — on both the retriever
@@ -255,18 +258,78 @@ async def test_the_caller_id_reaches_the_retriever(
 
     @verifies REQ-0022
     """
-    await chat(client, user_headers, message="anything")
+    await chat(client, member_headers, message="anything")
 
     assert [c["user_id"] for c in fake_retrieval.calls] == [USER_ID, USER_ID]
+    assert [c["community_id"] for c in fake_retrieval.calls] == [COMMUNITY, COMMUNITY]
+
+
+async def test_another_community_s_knowledge_reaches_neither_the_client_nor_the_model(
+    client, member_headers, fake_llm, fake_retrieval
+):
+    """Each community has its own collection; the `community_id` check is what still
+    holds if a point ever lands in the wrong one.
+
+    @verifies REQ-0022
+    """
+    fake_retrieval(
+        [
+            system_node("Their handbook", title="Theirs", community_id=OTHER_COMMUNITY),
+            curated_node("Their guide", title="Their guide", community_id=OTHER_COMMUNITY),
+            system_node("Our handbook", title="Ours"),
+        ]
+    )
+
+    await chat(client, member_headers, message="handbook?")
+
+    assert [b["title"] for b in fake_llm["context_blocks"]] == ["Ours"]
+
+
+async def test_without_a_community_nothing_is_retrieved(
+    client, user_headers, fake_llm, fake_retrieval
+):
+    """@verifies REQ-0022 @verifies REQ-0040"""
+    fake_retrieval([system_node("Our handbook", title="Ours")])
+
+    r = await chat(client, user_headers, message="handbook?")
+
+    assert r.status_code == 200
+    assert fake_llm["context_blocks"] == []
+    assert {c["community_id"] for c in fake_retrieval.calls} == {None}
+
+
+async def test_a_member_of_two_communities_is_refused(
+    client, history, tokens, fake_llm, fake_retrieval
+):
+    """@verifies REQ-0040"""
+    headers = tokens.issue(
+        "eve",
+        organizations={
+            COMMUNITY: {"type": ["rec"]},
+            OTHER_COMMUNITY: {"type": ["rec"]},
+        },
+    )
+
+    r = await chat(client, headers, message="hi")
+
+    assert r.status_code == 403
+    assert history.messages == []
 
 
 # --- attachments ------------------------------------------------------------
 
 
-async def attach(history, owner=USER_ID, scope="user", caption="A photo of a meter"):
+async def attach(
+    history,
+    owner=USER_ID,
+    scope="user",
+    caption="A photo of a meter",
+    community_id=COMMUNITY,
+):
     return await history.record_attachment(
         scope=scope,
         owner_user_id=owner if scope == "user" else None,
+        community_id=community_id,
         uri="file:///tmp/x",
         path="/tmp/x",
         filename="meter.png",
@@ -278,7 +341,7 @@ async def attach(history, owner=USER_ID, scope="user", caption="A photo of a met
 
 
 async def test_an_attachment_leads_the_context(
-    client, history, user_headers, fake_llm, fake_retrieval
+    client, history, member_headers, fake_llm, fake_retrieval
 ):
     """It is put first deliberately: the user just attached it, so it outranks anything
     retrieval found.
@@ -288,7 +351,7 @@ async def test_an_attachment_leads_the_context(
     fake_retrieval([curated_node("Background.", title="Background")])
     att_id = await attach(history)
 
-    r = await chat(client, user_headers, message="what is this?", attachment_ids=[att_id])
+    r = await chat(client, member_headers, message="what is this?", attachment_ids=[att_id])
 
     first = fake_llm["context_blocks"][0]
     assert first["source"] == "attached_files"
@@ -298,7 +361,7 @@ async def test_an_attachment_leads_the_context(
 
 
 async def test_an_attachment_with_no_description_says_so(
-    client, history, user_headers, fake_llm, fake_retrieval
+    client, history, member_headers, fake_llm, fake_retrieval
 ):
     """An empty description would read to the model as a file with nothing in it.
 
@@ -306,46 +369,49 @@ async def test_an_attachment_with_no_description_says_so(
     """
     att_id = await attach(history, caption=None)
 
-    await chat(client, user_headers, message="what is this?", attachment_ids=[att_id])
+    await chat(client, member_headers, message="what is this?", attachment_ids=[att_id])
 
     assert "(no description available)" in fake_llm["context_blocks"][0]["text"]
 
 
 # @verifies REQ-0016
 async def test_attaching_someone_else_s_file_is_forbidden(
-    client, history, user_headers, fake_llm, fake_retrieval
+    client, history, member_headers, fake_llm, fake_retrieval
 ):
-    att_id = await attach(history, owner=OTHER_USER_ID)
+    att_id = await attach(history, owner=NEIGHBOUR_ID)
 
-    r = await chat(client, user_headers, message="what is this?", attachment_ids=[att_id])
+    r = await chat(client, member_headers, message="what is this?", attachment_ids=[att_id])
     assert r.status_code == 403
 
 
 # @verifies REQ-0017
-async def test_a_system_attachment_may_be_attached_by_anyone(
-    client, history, user_headers, fake_llm, fake_retrieval
+async def test_a_system_attachment_may_be_attached_by_any_member_of_its_community(
+    client, history, member_headers, outsider_headers, fake_llm, fake_retrieval
 ):
     att_id = await attach(history, scope="system")
 
-    r = await chat(client, user_headers, message="what is this?", attachment_ids=[att_id])
+    r = await chat(client, member_headers, message="what is this?", attachment_ids=[att_id])
     assert r.status_code == 200
+
+    r = await chat(client, outsider_headers, message="what is this?", attachment_ids=[att_id])
+    assert r.status_code == 403
 
 
 async def test_an_unknown_attachment_id_is_ignored_rather_than_refused(
-    client, user_headers, fake_llm, fake_retrieval
+    client, member_headers, fake_llm, fake_retrieval
 ):
     """A stale id from a client that cached one is not worth failing the turn over.
 
     @verifies REQ-0020
     """
-    r = await chat(client, user_headers, message="hi", attachment_ids=["gone"])
+    r = await chat(client, member_headers, message="hi", attachment_ids=["gone"])
 
     assert r.status_code == 200
     assert fake_llm["context_blocks"] == []
 
 
 async def test_attachments_alone_are_enough_to_ask_a_question(
-    client, history, user_headers, fake_llm, fake_retrieval
+    client, history, member_headers, fake_llm, fake_retrieval
 ):
     """The UI lets a file be sent with no text; the route supplies the question.
 
@@ -353,7 +419,7 @@ async def test_attachments_alone_are_enough_to_ask_a_question(
     """
     att_id = await attach(history)
 
-    r = await chat(client, user_headers, message="", attachment_ids=[att_id])
+    r = await chat(client, member_headers, message="", attachment_ids=[att_id])
 
     assert r.status_code == 200
     assert fake_llm["user_message"].startswith("Analyze the attached files")

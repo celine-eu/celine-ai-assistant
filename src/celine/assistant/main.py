@@ -6,14 +6,14 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import kb_collections, kb_sources
 from .auth import AuthError
 from .history import HistoryStore
+from .kb_store import KbStore
 from .llm import configuration_problems
 from .logging_ import configure_logging
-from .qdrant_setup import ensure_collection
 from .routes import router
 from .settings import settings
-from .training_materials import startup_sync_training_materials
 
 configure_logging(settings.log_level)
 log = logging.getLogger(__name__)
@@ -30,18 +30,18 @@ async def lifespan(app: FastAPI):
     problems = configuration_problems(settings)
     if problems:
         raise RuntimeError("model configuration: " + "; ".join(problems))
-    ensure_collection()
+    for name in kb_sources.removed_ingestion_settings(settings):
+        log.warning(
+            "%s is no longer read: register knowledge sources per community with "
+            "`celine-assistant kb source add`",
+            name,
+        )
+    kb_collections.check_startup(kb_collections.qdrant_client())
     app.state.history_store = HistoryStore()
 
-    if settings.ingest_enable:
-        try:
-            result = await startup_sync_training_materials()
-            log.info("training_materials_synced", extra=result)
-        except Exception:
-            log.exception(
-                "training_materials_sync_failed",
-                extra={"root": settings.training_materials_path},
-            )
+    if settings.kb_sync_on_start:
+        results = await kb_sources.sync_all(kb_store=KbStore())
+        log.info("kb_sources_synced", extra={"sources": len(results)})
 
     log.info("app started")
     try:

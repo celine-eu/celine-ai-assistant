@@ -5,14 +5,26 @@ import json
 import logging
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from .auth import UserInfo, get_user_identity, UserIdentity, is_admin, extract_access_token
+from . import kb_sources
+from .attachment_index import extract, index_attachment
+from .auth import (
+    UserIdentity,
+    UserInfo,
+    can_manage,
+    community_id_of,
+    extract_access_token,
+    get_user_identity,
+    is_admin,
+)
+from .kb_collections import InvalidCommunityId, validate_community_id
+from .kb_store import KbStore
 from .models import (
     ChatRequest,
     HealthResponse,
-    TrainingMaterialsSyncRequest,
+    KbSyncRequest,
 )
 from .rag import (
     attachment_doc_id,
@@ -25,10 +37,6 @@ from .history import HistoryStore, get_history_store
 from .openai_stream import stream_chat
 from .uploads import StoredFile, store_upload, open_upload_stream, delete_upload
 from .settings import settings
-from .openai_vision import describe_image
-from .document_processing import detect_mime, extract_text
-from .rag import upsert_documents_from_text
-from .training_materials import sync_training_materials
 from .skills.factory import build_skill_registry
 from .suggestions import get_suggestions, get_tool_labels
 
@@ -47,9 +55,22 @@ def _is_public_source(source: dict) -> bool:
     return not bool(metadata.get("hidden"))
 
 
+def _may_read(att: dict, user: UserIdentity, community_id: str | None) -> bool:
+    """A shared attachment is its community's; a member's own is theirs. A realm
+    administrator reads either."""
+    if is_admin(user):
+        return True
+    if att["scope"] == "system":
+        return community_id is not None and att.get("community_id") == community_id
+    if att["scope"] == "user":
+        return att.get("owner_user_id") == user.user_id
+    return False
+
+
 async def _load_authorized_attachments(
     history_store: HistoryStore,
     user: UserIdentity,
+    community_id: str | None,
     attachment_ids: list[str],
 ) -> list[dict]:
     out: list[dict] = []
@@ -57,17 +78,9 @@ async def _load_authorized_attachments(
         att = await history_store.get_attachment_any(att_id)
         if not att:
             continue
-
-        if att["scope"] == "system":
-            out.append(att)
-            continue
-
-        if att["scope"] == "user":
-            if att.get("owner_user_id") == user.user_id or is_admin(user):
-                out.append(att)
-                continue
-
-        raise HTTPException(status_code=403, detail="Forbidden attachment access")
+        if not _may_read(att, user, community_id):
+            raise HTTPException(status_code=403, detail="Forbidden attachment access")
+        out.append(att)
     return out
 
 
@@ -102,10 +115,24 @@ def _attachment_context_block(atts: list[dict]) -> dict:
     }
 
 
-def require_admin(user: UserIdentity = Depends(get_user_identity)) -> UserIdentity:
-    if not is_admin(user):
+def _managed_community(user: UserIdentity, requested: str | None) -> str:
+    """The community an administrator endpoint acts on, which the caller must manage.
+
+    A REC manager acts on their own REC. A realm administrator has none of their own
+    and names one.
+    """
+    community_id = requested or community_id_of(user)
+    if not community_id:
+        raise HTTPException(
+            status_code=400, detail="Name the community (community_id) to act on"
+        )
+    try:
+        validate_community_id(community_id)
+    except InvalidCommunityId as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not can_manage(user, community_id):
         raise HTTPException(status_code=403, detail="Admin only")
-    return user
+    return community_id
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -145,53 +172,25 @@ async def _read_upload_or_413(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
-def _is_image(filename: str, content_type: str | None) -> bool:
-    if content_type and content_type.startswith("image/"):
-        return True
-    return filename.lower().endswith(
-        (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif")
-    )
-
-
 async def _process_upload(
     history_store: HistoryStore,
     data: bytes,
     stored: StoredFile,
     scope: str,
     owner_user_id: str | None,
+    community_id: str | None,
 ) -> dict:
     """Shared upload processing for both user and system scopes.
 
-    Determines the processing path based on file type:
-    - Images: describe with the vision model
-    - PDFs / documents: extract text via document_processing pipeline
+    Without a community the file is stored and can be attached to a turn, but there is
+    no knowledge base to index it into.
     """
-    detected_mime = detect_mime(data)
-    effective_mime = (
-        detected_mime
-        if detected_mime != "application/octet-stream"
-        else (stored.content_type or "")
-    )
-
-    extracted_text: str | None = None
-    caption: str | None = None
-
-    if _is_image(stored.filename, effective_mime):
-        caption = await describe_image(image_bytes=data)
-        extracted_text = caption
-    elif effective_mime == "application/pdf" or stored.filename.lower().endswith(".pdf"):
-        extracted_text = await extract_text(data, effective_mime, stored.filename)
-    else:
-        try:
-            extracted_text = await extract_text(data, effective_mime, stored.filename)
-        except Exception:
-            # `file`, not `filename`: `filename` is a LogRecord attribute and logging
-            # raises rather than overwrite one — from inside this except block.
-            log.warning("extract_text_failed", extra={"file": stored.filename})
+    extracted_text, caption = await extract(data, stored.filename, stored.content_type)
 
     att_id = await history_store.record_attachment(
         scope=scope,
         owner_user_id=owner_user_id,
+        community_id=community_id,
         uri=stored.uri,
         path=stored.path,
         filename=stored.filename,
@@ -201,37 +200,29 @@ async def _process_upload(
         ocr_text=extracted_text,
     )
 
-    if extracted_text:
-        kind = "image_caption" if caption else "document_content"
-        label = (
-            f"Image description for {stored.filename}"
-            if caption
-            else f"Document content for {stored.filename}"
-        )
-        await upsert_documents_from_text(
-            text=f"{label}:\n{extracted_text}",
-            metadata={
-                "attachment_id": att_id,
-                "source_uri": stored.uri,
-                "filename": stored.filename,
-                "content_type": stored.content_type,
-                # Read back by `rag.visibility_filter` and `rag.is_visible_to`. Writing
-                # them and not reading them is what made every upload world-readable.
-                "scope": scope,
-                "owner_user_id": owner_user_id,
-                "kind": kind,
-            },
-            doc_id=attachment_doc_id(att_id),
-        )
+    indexed = await index_attachment(
+        {
+            "id": att_id,
+            "scope": scope,
+            "owner_user_id": owner_user_id,
+            "community_id": community_id,
+            "uri": stored.uri,
+            "filename": stored.filename,
+            "content_type": stored.content_type,
+            "caption": caption,
+            "ocr_text": extracted_text,
+        }
+    )
 
     return {
-        "status": "indexed" if extracted_text else "stored",
+        "status": "indexed" if indexed else "stored",
         "attachment_id": att_id,
         "uri": stored.uri,
         "filename": stored.filename,
         "content_type": stored.content_type,
         "size": stored.size_bytes,
         "scope": scope,
+        "community_id": community_id,
         "caption": caption,
     }
 
@@ -242,6 +233,7 @@ async def upload_user(
     user: UserIdentity = Depends(get_user_identity),
     history_store: HistoryStore = Depends(get_history_store),
 ):
+    community_id = community_id_of(user)
     data = await _read_upload_or_413(file)
 
     stored = await store_upload(
@@ -258,15 +250,18 @@ async def upload_user(
         stored=stored,
         scope="user",
         owner_user_id=user.user_id,
+        community_id=community_id,
     )
 
 
 @router.post("/admin/uploads")
 async def upload_system(
     file: UploadFile = File(...),
-    admin: UserIdentity = Depends(require_admin),
+    community_id: str | None = Form(default=None),
+    user: UserIdentity = Depends(get_user_identity),
     history_store: HistoryStore = Depends(get_history_store),
 ):
+    target = _managed_community(user, community_id)
     data = await _read_upload_or_413(file)
 
     stored = await store_upload(
@@ -283,21 +278,26 @@ async def upload_system(
         stored=stored,
         scope="system",
         owner_user_id=None,
+        community_id=target,
     )
 
 
-@router.post("/admin/training-materials/sync")
-async def sync_training_materials_route(
-    req: TrainingMaterialsSyncRequest,
-    admin: UserIdentity = Depends(require_admin),
+def get_kb_store() -> KbStore:
+    return KbStore()
+
+
+@router.post("/admin/kb/sync")
+async def sync_knowledge_sources(
+    req: KbSyncRequest,
+    user: UserIdentity = Depends(get_user_identity),
+    kb_store: KbStore = Depends(get_kb_store),
 ):
-    _ = admin
-    try:
-        return await sync_training_materials(
-            target_ref=req.target_ref, force_full=False
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    """Sync the registered sources of one community's knowledge base."""
+    target = _managed_community(user, req.community_id)
+    results = await kb_sources.sync_all(
+        kb_store=kb_store, community_id=target, full=req.full
+    )
+    return {"community_id": target, "sources": results}
 
 
 @router.get("/attachments")
@@ -307,7 +307,7 @@ async def list_attachments(
     limit: int = 200,
 ):
     items = await history_store.list_attachments_for_user(
-        user.user_id, limit=limit
+        user.user_id, community_id_of(user), limit=limit
     )
     return {"items": items, "limit": limit}
 
@@ -319,15 +319,12 @@ async def _get_attachment_authorized(
     if not att:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    if att["scope"] == "system":
-        return att
+    if att["scope"] not in ("system", "user"):
+        raise HTTPException(status_code=500, detail="Invalid attachment scope")
 
-    if att["scope"] == "user":
-        if att.get("owner_user_id") == user.user_id or is_admin(user):
-            return att
+    if not _may_read(att, user, community_id_of(user)):
         raise HTTPException(status_code=403, detail="Forbidden")
-
-    raise HTTPException(status_code=500, detail="Invalid attachment scope")
+    return att
 
 
 @router.get("/attachments/{attachment_id}/raw")
@@ -358,7 +355,10 @@ async def delete_attachment(
     if not att:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    if att["scope"] == "system" and not is_admin(user):
+    community_id = att.get("community_id")
+    if att["scope"] == "system" and not (
+        is_admin(user) or (community_id and can_manage(user, community_id))
+    ):
         raise HTTPException(status_code=403, detail="Admin only")
 
     if (
@@ -378,7 +378,10 @@ async def delete_attachment(
     # The row and the blob are not the whole attachment: `_process_upload` also wrote it
     # into the vector store, and content left retrievable has not been deleted.
     try:
-        await delete_document(attachment_doc_id(attachment_id))
+        if community_id:
+            await delete_document(
+                attachment_doc_id(attachment_id), community_id=community_id
+            )
     except Exception:
         log.exception(
             "attachments_delete_index_failed", extra={"attachment": attachment_id}
@@ -402,9 +405,14 @@ async def suggestions(
     lang: str = "en",
 ):
     raw_token = extract_access_token(request)
+    try:
+        community_id = community_id_of(user)
+    except HTTPException:
+        community_id = None
     registry = build_skill_registry(
         user_token=raw_token,
         user_id=user.user_id,
+        community_id=community_id,
         settings=settings,
         history_store=history_store,
     )
@@ -423,6 +431,8 @@ async def chat(
     history_store: HistoryStore = Depends(get_history_store),
 ):
     user_message = req.message.strip()
+    # Before anything is written: a token naming several RECs is refused outright.
+    community_id = community_id_of(user)
 
     conv = await history_store.get_or_create_conversation(
         user.user_id, req.conversation_id
@@ -439,20 +449,31 @@ async def chat(
     skill_registry = build_skill_registry(
         user_token=raw_token,
         user_id=user.user_id,
+        community_id=community_id,
         settings=settings,
         history_store=history_store,
     )
 
     attached = await _load_authorized_attachments(
-        history_store, user, req.attachment_ids
+        history_store, user, community_id, req.attachment_ids
     )
     attachment_block = _attachment_context_block(attached) if attached else None
 
     sources: list[dict] = []
     if user_message:
-        retriever = build_retriever(req.top_k, user_id=user.user_id)
+        retriever = await asyncio.to_thread(
+            build_retriever,
+            req.top_k,
+            user_id=user.user_id,
+            community_id=community_id,
+        )
         nodes = await asyncio.to_thread(
-            retrieve, retriever, user_message, req.top_k, user_id=user.user_id
+            retrieve,
+            retriever,
+            user_message,
+            req.top_k,
+            user_id=user.user_id,
+            community_id=community_id,
         )
         sources = [node_to_source(n) for n in nodes]
     public_sources = [source for source in sources if _is_public_source(source)]

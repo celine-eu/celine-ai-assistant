@@ -11,6 +11,7 @@ import pytest
 
 ALICE = "alice"
 BOB = "bob"
+COMMUNITY = "example-rec"
 
 
 async def conversation(store, user=ALICE, conversation_id=None, *messages):
@@ -294,6 +295,7 @@ async def record(store, scope="user", owner=ALICE, filename="bill.pdf", **overri
     payload = {
         "scope": scope,
         "owner_user_id": owner if scope == "user" else None,
+        "community_id": COMMUNITY,
         "uri": f"file:///tmp/{filename}",
         "path": f"/tmp/{filename}",
         "filename": filename,
@@ -328,10 +330,60 @@ async def test_a_listing_returns_own_and_system_attachments(store):
     mine = await record(store, filename="mine.pdf")
     shared = await record(store, scope="system", filename="shared.pdf")
     await record(store, owner=BOB, filename="theirs.pdf")
+    await record(store, scope="system", filename="elsewhere.pdf", community_id="other-rec")
 
-    rows = await store.list_attachments_for_user(ALICE)
+    rows = await store.list_attachments_for_user(ALICE, COMMUNITY)
 
     assert {r["id"] for r in rows} == {mine, shared}
+
+
+# @verifies REQ-0019
+async def test_without_a_community_a_listing_returns_only_own_attachments(store):
+    mine = await record(store, filename="mine.pdf", community_id=None)
+    await record(store, scope="system", filename="shared.pdf")
+
+    rows = await store.list_attachments_for_user(ALICE, None)
+
+    assert {r["id"] for r in rows} == {mine}
+
+
+# @verifies REQ-0041
+async def test_a_community_s_attachments_are_listed_oldest_first(store, clock):
+    first = await record(store, filename="a.pdf")
+    clock.advance(1)
+    second = await record(store, scope="system", filename="b.pdf")
+    await record(store, filename="c.pdf", community_id="other-rec")
+
+    rows = await store.list_attachments_for_community(COMMUNITY)
+
+    assert [r["id"] for r in rows] == [first, second]
+    assert await store.attachment_communities() == [COMMUNITY, "other-rec"]
+
+
+async def test_legacy_attachments_are_assigned_to_one_community(store):
+    """Rows from before knowledge bases were per community have none; the migration
+    gives them one and leaves every other row alone.
+
+    @verifies REQ-0042
+    """
+    await record(store, filename="old-1.pdf", community_id=None)
+    await record(store, filename="old-2.pdf", community_id=None)
+    kept = await record(store, filename="new.pdf", community_id="other-rec")
+
+    assert await store.count_attachments_without_community() == 2
+    assert await store.assign_community_to_unassigned(COMMUNITY) == 2
+    assert await store.count_attachments_without_community() == 0
+    assert (await store.get_attachment_any(kept))["community_id"] == "other-rec"
+
+
+# @verifies REQ-0041
+async def test_re_extracted_text_replaces_what_was_stored(store):
+    att_id = await record(store)
+
+    await store.update_attachment_text(att_id, ocr_text="new text", caption="a caption")
+
+    att = await store.get_attachment_any(att_id)
+    assert (att["ocr_text"], att["caption"]) == ("new text", "a caption")
 
 
 # @verifies REQ-0019
@@ -339,7 +391,7 @@ async def test_the_newest_attachment_is_listed_first(store):
     for i in range(3):
         await record(store, filename=f"f{i}.pdf")
 
-    rows = await store.list_attachments_for_user(ALICE, limit=2)
+    rows = await store.list_attachments_for_user(ALICE, COMMUNITY, limit=2)
     assert len(rows) == 2
 
 
@@ -438,8 +490,10 @@ async def test_the_double_and_the_store_agree_on_attachment_visibility(store):
         mine = await record(target, filename="mine.pdf")
         shared = await record(target, scope="system", filename="shared.pdf")
         await record(target, owner=BOB, filename="theirs.pdf")
+        await record(target, scope="system", filename="elsewhere.pdf", community_id="x")
         ids.append({mine, shared})
 
-    assert {r["filename"] for r in await store.list_attachments_for_user(ALICE)} == {
-        r["filename"] for r in await double.list_attachments_for_user(ALICE)
-    }
+    for community in (COMMUNITY, None):
+        assert {
+            r["filename"] for r in await store.list_attachments_for_user(ALICE, community)
+        } == {r["filename"] for r in await double.list_attachments_for_user(ALICE, community)}

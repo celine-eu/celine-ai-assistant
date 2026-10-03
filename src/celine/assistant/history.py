@@ -12,7 +12,7 @@ import uuid
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .db import AsyncSessionLocal, Attachment, Conversation, Message
@@ -217,6 +217,7 @@ class HistoryStore:
         *,
         scope: str,
         owner_user_id: str | None,
+        community_id: str | None,
         uri: str,
         path: str,
         filename: str,
@@ -231,6 +232,7 @@ class HistoryStore:
                     id=str(uuid.uuid4()),
                     scope=scope,
                     owner_user_id=owner_user_id,
+                    community_id=community_id,
                     uri=uri,
                     path=path,
                     filename=filename,
@@ -244,23 +246,77 @@ class HistoryStore:
             return att.id
 
     async def list_attachments_for_user(
-        self, user_id: str, limit: int = 200
+        self, user_id: str, community_id: str | None, limit: int = 200
     ) -> list[dict[str, Any]]:
+        """The caller's own uploads, and what was shared with their community."""
         async with self._session() as session:
+            own = (Attachment.scope == "user") & (Attachment.owner_user_id == user_id)
+            shared = (
+                (Attachment.scope == "system")
+                & (Attachment.community_id == community_id)
+                if community_id
+                else None
+            )
             stmt = (
                 select(Attachment)
-                .where(
-                    (Attachment.scope == "system")
-                    | (
-                        (Attachment.scope == "user")
-                        & (Attachment.owner_user_id == user_id)
-                    )
-                )
+                .where(own if shared is None else (own | shared))
                 .order_by(Attachment.created_at.desc())
                 .limit(limit)
             )
             rows = (await session.execute(stmt)).scalars().all()
             return [_att_dict(a) for a in rows]
+
+    async def list_attachments_for_community(
+        self, community_id: str
+    ) -> list[dict[str, Any]]:
+        """Every attachment a community's knowledge base indexes, oldest first."""
+        async with self._session() as session:
+            stmt = (
+                select(Attachment)
+                .where(Attachment.community_id == community_id)
+                .order_by(Attachment.created_at.asc())
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_att_dict(a) for a in rows]
+
+    async def update_attachment_text(
+        self, attachment_id: str, *, ocr_text: str | None, caption: str | None
+    ) -> None:
+        """Replace what extraction produced, after it ran again."""
+        async with self._session() as session:
+            async with session.begin():
+                await session.execute(
+                    update(Attachment)
+                    .where(Attachment.id == attachment_id)
+                    .values(ocr_text=ocr_text, caption=caption)
+                )
+
+    async def attachment_communities(self) -> list[str]:
+        async with self._session() as session:
+            stmt = (
+                select(Attachment.community_id)
+                .where(Attachment.community_id.is_not(None))
+                .distinct()
+            )
+            return sorted((await session.execute(stmt)).scalars().all())
+
+    async def count_attachments_without_community(self) -> int:
+        async with self._session() as session:
+            stmt = select(func.count(Attachment.id)).where(
+                Attachment.community_id.is_(None)
+            )
+            return int((await session.execute(stmt)).scalar_one())
+
+    async def assign_community_to_unassigned(self, community_id: str) -> int:
+        """Give every attachment that has no community this one. Returns how many."""
+        async with self._session() as session:
+            async with session.begin():
+                result = await session.execute(
+                    update(Attachment)
+                    .where(Attachment.community_id.is_(None))
+                    .values(community_id=community_id)
+                )
+            return int(result.rowcount or 0)
 
     async def get_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
         async with self._session() as session:
@@ -301,6 +357,7 @@ def _att_dict(att: Attachment) -> dict[str, Any]:
         "id": att.id,
         "scope": att.scope,
         "owner_user_id": att.owner_user_id,
+        "community_id": att.community_id,
         "uri": att.uri,
         "path": att.path,
         "filename": att.filename,

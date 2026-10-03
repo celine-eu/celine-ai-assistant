@@ -13,6 +13,9 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from celine.assistant.auth import (
+    CommunityConflict,
+    can_manage,
+    community_id_of,
     UserIdentity,
     UserInfo,
     extract_access_token,
@@ -184,17 +187,104 @@ def test_admin_group_is_matched_with_the_leading_slash_stripped():
     assert is_admin(identity_with_groups(f"/{settings.admin_group}"))
 
 
-# @verifies REQ-0004
-def test_org_scoped_groups_also_confer_admin():
+def test_an_admins_group_inside_an_organization_is_not_a_realm_administrator():
+    """This was asserted the other way round until 2026-10-02. Read through
+    `extract_groups`, which merges every organization's groups, an `admins` group inside
+    any one REC made its holder an administrator of every REC.
+
+    @verifies REQ-0004 @verifies REQ-0005
+    """
     identity = UserIdentity(
         user_id="u",
         raw={
             "claims": {
-                "organization": {"celine": {"groups": [settings.admin_group]}},
+                "organization": {
+                    "example-rec": {"type": ["rec"], "groups": [settings.admin_group]}
+                },
             }
         },
     )
-    assert is_admin(identity)
+    assert not is_admin(identity)
+    assert can_manage(identity, "example-rec")
+    assert not can_manage(identity, "other-rec")
+
+
+# --- the community ----------------------------------------------------------
+
+
+def identity_with_orgs(organizations, groups=("members",)) -> UserIdentity:
+    return UserIdentity(
+        user_id="u",
+        raw={"claims": {"groups": list(groups), "organization": organizations}},
+    )
+
+
+# @verifies REQ-0040
+def test_the_community_is_the_alias_of_the_one_rec_organization():
+    identity = identity_with_orgs(
+        {"example-rec": {"type": ["rec"]}, "example-dso": {"type": ["dso"]}}
+    )
+    assert community_id_of(identity) == "example-rec"
+
+
+def test_the_type_is_read_flattened_first_and_nested_second():
+    """KC 26's mapper emits `type` on the entry; another mapper may nest it under
+    `attributes`. Both name a REC.
+
+    @verifies REQ-0040
+    """
+    assert community_id_of(identity_with_orgs({"a": {"type": "rec"}})) == "a"
+    assert community_id_of(identity_with_orgs({"b": {"attributes": {"type": ["rec"]}}})) == "b"
+
+
+# @verifies REQ-0040
+def test_no_rec_organization_is_no_community():
+    assert community_id_of(identity_with_orgs({"example-dso": {"type": ["dso"]}})) is None
+    assert community_id_of(identity_with_orgs({"untyped": {}})) is None
+    assert community_id_of(UserIdentity(user_id="u", raw={})) is None
+
+
+# @verifies REQ-0040
+def test_two_rec_organizations_are_refused_not_chosen_between():
+    identity = identity_with_orgs({"a": {"type": ["rec"]}, "b": {"type": ["rec"]}})
+
+    with pytest.raises(CommunityConflict) as exc:
+        community_id_of(identity)
+
+    assert exc.value.status_code == 403
+    assert exc.value.communities == ["a", "b"]
+
+
+# @verifies REQ-0040
+def test_the_rec_type_is_configuration(monkeypatch):
+    monkeypatch.setattr(settings, "rec_organization_type", "community")
+    assert community_id_of(identity_with_orgs({"a": {"type": ["community"]}})) == "a"
+    assert community_id_of(identity_with_orgs({"b": {"type": ["rec"]}})) is None
+
+
+# @verifies REQ-0005
+def test_a_manager_group_is_matched_with_the_leading_slash_stripped():
+    identity = identity_with_orgs({"example-rec": {"type": ["rec"], "groups": ["/managers"]}})
+    assert can_manage(identity, "example-rec")
+
+
+# @verifies REQ-0005
+def test_a_member_without_a_manager_group_manages_nothing():
+    identity = identity_with_orgs({"example-rec": {"type": ["rec"], "groups": ["/viewers"]}})
+    assert not can_manage(identity, "example-rec")
+
+
+# @verifies REQ-0005
+def test_a_manager_group_in_an_organization_that_is_not_a_rec_manages_nothing():
+    identity = identity_with_orgs({"example-rec": {"type": ["dso"], "groups": ["managers"]}})
+    assert not can_manage(identity, "example-rec")
+
+
+# @verifies REQ-0005
+def test_a_realm_administrator_manages_every_community():
+    identity = identity_with_groups(settings.admin_group)
+    assert can_manage(identity, "example-rec")
+    assert can_manage(identity, "other-rec")
 
 
 # @verifies REQ-0004

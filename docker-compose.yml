@@ -54,7 +54,7 @@ services:
     env_file:
       - .env
     environment:
-      TRAINING_MATERIALS_PATH: /app/training-materials
+      KB_SOURCES_DIR: /app/data/kb-sources
     volumes:
       - ./data/app:/app/data
       - ./data/local_docs:/app/docs:ro

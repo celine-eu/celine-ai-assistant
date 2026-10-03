@@ -77,21 +77,29 @@ Delete a conversation and all its messages.
 
 ### `GET /user`
 
-Return the authenticated user's profile derived from the JWT.
+Return the authenticated user's profile derived from the JWT: `community_id` (the REC
+organization in the token, or `null`), `is_realm_admin`, and `is_admin` — true for a
+realm administrator and for a manager of the caller's own community.
 
 ---
 
 ## Admin
 
-The following endpoints require the user to be a member of the admin group.
+These act on one community's knowledge base. The caller must be a realm administrator
+(`ADMIN_GROUP` in the top-level `groups` claim) or hold one of `REC_MANAGER_GROUPS` inside
+that REC's organization. A manager acts on their own community; a realm administrator
+names one with `community_id` (`400` without). Anyone else gets `403`.
 
 ### `POST /admin/uploads`
 
-Upload a file as a system-level attachment (visible to all users).
+Multipart: `file`, and optionally `community_id` (a realm administrator's). Shares a file
+with the community as a system-scoped attachment, readable by its members.
 
-### `POST /admin/training-materials/sync`
+### `POST /admin/kb/sync`
 
-Clone or refresh `celine-training-materials` inside the container, check out the requested ref, and ingest Markdown files.
+Body: `{"community_id": "…" | null, "full": false}`. Syncs every source registered for
+the community and returns one result per source; a failing source carries an `error`
+and does not stop the others. Replaces `POST /admin/training-materials/sync`.
 
 ---
 

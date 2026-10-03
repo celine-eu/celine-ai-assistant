@@ -52,6 +52,10 @@ class Attachment(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     scope: Mapped[str] = mapped_column(String(16), nullable=False)  # 'user' | 'system'
     owner_user_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # The REC whose knowledge base indexes it. Null only for rows written before
+    # knowledge bases were per community; `celine-assistant kb migrate-legacy` assigns
+    # them.
+    community_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     uri: Mapped[str] = mapped_column(Text, nullable=False)
     path: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -65,4 +69,44 @@ class Attachment(Base):
         Index("idx_att_owner", "owner_user_id"),
         Index("idx_att_scope", "scope"),
         Index("idx_att_created", "created_at"),
+        Index("idx_att_community", "community_id"),
     )
+
+
+class KbSource(Base):
+    """A git repository or a directory whose documents feed one community's knowledge."""
+
+    __tablename__ = "kb_sources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    community_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)  # 'git' | 'dir'
+    # A clone URL for git, a filesystem path for a directory.
+    location: Mapped[str] = mapped_column(Text, nullable=False)
+    ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # A subdirectory of the checkout to read; empty means all of it.
+    subpath: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_synced_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_synced_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    __table_args__ = (Index("idx_kbsrc_community", "community_id"),)
+
+
+class KbSourceDocument(Base):
+    """What one source last put into one collection: a path and its content hash.
+
+    Keyed by the physical collection, not the alias, so a new generation starts with
+    nothing recorded and is always a full import.
+    """
+
+    __tablename__ = "kb_source_documents"
+
+    source_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("kb_sources.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    collection: Mapped[str] = mapped_column(String(255), primary_key=True)
+    path: Mapped[str] = mapped_column(String(1024), primary_key=True)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)

@@ -46,33 +46,54 @@ class Settings(BaseSettings):
         default="http://host.docker.internal:6333", alias="QDRANT_URL"
     )
     qdrant_api_key: str | None = Field(default=None, alias="QDRANT_API_KEY")
+    # A prefix, not a collection: each community's knowledge base is the Qdrant alias
+    # `<prefix>__<community_id>__<embedding fingerprint>`. See `kb_collections.py`.
     qdrant_collection: str = Field(default="celine_docs", alias="QDRANT_COLLECTION")
 
-    docs_poll_interval_seconds: int = Field(
-        default=60, alias="DOCS_POLL_INTERVAL_SECONDS"
+    # Where `celine-assistant kb sync` keeps its clones of git sources.
+    kb_sources_dir: str = Field(default="./data/kb-sources", alias="KB_SOURCES_DIR")
+    # Sync the registered git sources when the service starts.
+    kb_sync_on_start: bool = Field(default=False, alias="KB_SYNC_ON_START")
+    # A token for cloning private git sources over HTTPS, sent only to KB_GIT_TOKEN_HOST.
+    # It reaches git as an environment-supplied header: never the command line, the
+    # database, or the clone's `.git/config`. For GitHub, a fine-grained token with
+    # read-only Contents on the source repositories.
+    kb_git_token: str = Field(default="", alias="KB_GIT_TOKEN")
+    kb_git_token_host: str = Field(default="github.com", alias="KB_GIT_TOKEN_HOST")
+
+    # The organization type a REC carries in the token's `organization` claim, and the
+    # groups inside it that manage its knowledge. Onboarding's policy uses the same.
+    rec_organization_type: str = Field(default="rec", alias="REC_ORGANIZATION_TYPE")
+    rec_manager_groups: list[str] = Field(
+        default_factory=lambda: ["managers", "admins"], alias="REC_MANAGER_GROUPS"
     )
-    training_materials_path: str = Field(
-        default="/workspace/repositories/celine-training-materials",
-        alias="TRAINING_MATERIALS_PATH",
+
+    # Read by nothing since 2026-10-02: knowledge sources are registered per community
+    # with `celine-assistant kb source add`. Declared so a leftover is reported at
+    # startup rather than looking configured.
+    removed_training_materials_path: str = Field(
+        default="", alias="TRAINING_MATERIALS_PATH"
     )
-    training_materials_repo_url: str = Field(
+    removed_training_materials_repo_url: str = Field(
         default="", alias="TRAINING_MATERIALS_REPO_URL"
     )
-    training_materials_ref: str = Field(
-        default="origin/main", alias="TRAINING_MATERIALS_REF"
+    removed_training_materials_ref: str = Field(
+        default="", alias="TRAINING_MATERIALS_REF"
     )
-    training_materials_sync_on_start: bool = Field(
-        default=True, alias="TRAINING_MATERIALS_SYNC_ON_START"
+    removed_training_materials_sync_on_start: str = Field(
+        default="", alias="TRAINING_MATERIALS_SYNC_ON_START"
+    )
+    removed_manifest_path: str = Field(default="", alias="MANIFEST_PATH")
+    removed_ingest_enable: str = Field(default="", alias="INGEST_ENABLE")
+    removed_ingest_force_reload_on_start: str = Field(
+        default="", alias="INGEST_FORCE_RELOAD_ON_START"
+    )
+    removed_docs_poll_interval_seconds: str = Field(
+        default="", alias="DOCS_POLL_INTERVAL_SECONDS"
     )
 
     uploads_uri: str = Field(default="file://./data/uploads", alias="UPLOADS_URI")
     max_upload_mb: int = Field(default=25, alias="MAX_UPLOAD_MB")
-
-    ingest_enable: bool = Field(default=True, alias="INGEST_ENABLE")
-    ingest_force_reload_on_start: bool = Field(
-        default=False, alias="INGEST_FORCE_RELOAD_ON_START"
-    )
-    manifest_path: str = Field(default="/app/data/manifest.json", alias="MANIFEST_PATH")
 
     database_url: str = Field(
         default="postgresql+asyncpg://postgres:securepassword123@host.docker.internal:15432/ai_assistant",

@@ -29,8 +29,10 @@ changing anything on this path.
 | Document processing | `document_processing.py` | MIME detection and text extraction for uploads |
 | Skills | `skills/` | Modular skill system: Digital Twin, Weather, Flexibility, REC Registry, Documents |
 | Suggestions | `suggestions.py` | Localized prompt suggestions and tool labels |
-| Training materials | `training_materials.py` | Git clone/checkout **and** incremental indexing of the Markdown corpus |
-| Qdrant setup | `qdrant_setup.py` | Collection initialization and management |
+| Knowledge bases | `kb_collections.py` | Per-community alias naming, embedding fingerprint, generations, startup check (ADR-0008) |
+| Knowledge sources | `kb_sources.py`, `kb_store.py` | Registered git/directory sources per community; incremental Markdown indexing |
+| Attachment indexing | `attachment_index.py` | Extraction and indexing shared by uploads and rebuilds |
+| Knowledge-base operations | `kb_admin.py`, `cli.py` | `celine-assistant kb`: status, sync, reindex, prune, migrate-legacy |
 | Settings | `settings.py` | Pydantic-settings environment configuration |
 
 ### Modules that are not part of the pipeline
@@ -39,9 +41,6 @@ Present in `src/`, reachable from nothing, and easy to mistake for the supported
 
 | Module | What it looks like | What it is |
 |---|---|---|
-| `ingest.py` | the way to index an uploaded file | uncalled. Uploads are indexed by `routes._process_upload` |
-| `site_docs.py` | a second corpus ingester | a near-exact copy of `training_materials.py` |
-| `training_materials_sync.py` | the sync entry point | an older one; the routes import `training_materials.py`'s |
 | `src/celine/assistant/skills/datasets.py` | a dataset-query skill | deliberately disabled — `dataset-api` needs a service token, and this service holds only the caller's (ADR-0005) |
 
 Deleting them is owed work, not a decision to re-take.

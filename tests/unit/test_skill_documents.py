@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 
 from celine.assistant.skills.documents import DocumentSkill
-from tests.conftest import curated_node, user_node
+from tests.conftest import COMMUNITY, OTHER_COMMUNITY, curated_node, user_node
 
 
-def build(history) -> DocumentSkill:
-    return DocumentSkill(history_store=history, user_id="alice")
+def build(history, community_id=COMMUNITY) -> DocumentSkill:
+    return DocumentSkill(history_store=history, user_id="alice", community_id=community_id)
 
 
 async def run(skill, tool, **args) -> dict:
@@ -28,6 +28,7 @@ async def record(history, **overrides) -> str:
     payload = {
         "scope": "user",
         "owner_user_id": "alice",
+        "community_id": COMMUNITY,
         "uri": "file:///tmp/x",
         "path": "/tmp/x",
         "filename": "bill.pdf",
@@ -64,11 +65,23 @@ async def test_another_user_s_attachment_is_reported_as_missing_not_forbidden(hi
 
 
 # @verifies REQ-0017
-async def test_a_system_attachment_is_readable_by_anyone(history):
+async def test_a_system_attachment_is_readable_by_its_community(history):
     att_id = await record(history, scope="system", owner_user_id=None)
 
     result = await run(build(history), "get_attachment_info", attachment_id=att_id)
     assert result["scope"] == "system"
+
+
+# @verifies REQ-0017
+async def test_another_community_s_system_attachment_is_reported_as_missing(history):
+    att_id = await record(
+        history, scope="system", owner_user_id=None, community_id=OTHER_COMMUNITY
+    )
+
+    for skill in (build(history), build(history, community_id=None)):
+        assert await run(skill, "get_attachment_info", attachment_id=att_id) == {
+            "error": "Attachment not found."
+        }
 
 
 # @verifies REQ-0020
@@ -128,6 +141,7 @@ async def test_search_is_scoped_to_the_calling_user(history, fake_retrieval):
             user_node("Bob's electricity bill: 412 EUR", "bob", title="bill.pdf"),
             user_node("Alice's own notes", "alice", title="notes.pdf"),
             curated_node("How sharing works", title="Sharing"),
+            curated_node("Their guide", title="Theirs", community_id=OTHER_COMMUNITY),
         ]
     )
 
@@ -145,13 +159,14 @@ async def test_the_search_carries_the_caller_id_to_the_retriever(history, fake_r
     await run(build(history), "search_documents", query="anything")
 
     assert {c["user_id"] for c in fake_retrieval.calls} == {"alice"}
+    assert {c["community_id"] for c in fake_retrieval.calls} == {COMMUNITY}
 
 
 # @verifies REQ-0028
 async def test_a_failing_retrieval_is_a_tool_error_not_an_exception(history, monkeypatch):
     import celine.assistant.rag as rag_mod
 
-    def boom(top_k=5, *, user_id=None):
+    def boom(top_k=5, *, user_id=None, community_id=None):
         raise RuntimeError("qdrant unreachable")
 
     monkeypatch.setattr(rag_mod, "build_retriever", boom)

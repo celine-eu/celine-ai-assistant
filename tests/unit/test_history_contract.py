@@ -30,15 +30,20 @@ PUBLIC = [
 def test_the_real_store_still_has_the_methods_we_think_it_has():
     assert sorted(PUBLIC) == [
         "append_message",
+        "assign_community_to_unassigned",
+        "attachment_communities",
         "conversation_exists",
+        "count_attachments_without_community",
         "delete_attachment_any",
         "delete_conversation",
         "get_attachment_any",
         "get_or_create_conversation",
+        "list_attachments_for_community",
         "list_attachments_for_user",
         "list_conversations",
         "list_messages",
         "record_attachment",
+        "update_attachment_text",
     ]
 
 
@@ -61,3 +66,31 @@ def test_the_double_implements_every_method_with_the_same_signature(name):
 def test_every_method_is_async_on_both(name):
     assert inspect.iscoroutinefunction(getattr(HistoryStore, name))
     assert inspect.iscoroutinefunction(getattr(FakeHistoryStore, name))
+
+
+# --- the knowledge-source store, the same way ---------------------------------
+
+from celine.assistant.kb_store import KbStore  # noqa: E402
+from tests.conftest import FakeKbStore  # noqa: E402
+
+KB_PUBLIC = [
+    name
+    for name, _ in inspect.getmembers(KbStore, inspect.isfunction)
+    if not name.startswith("_")
+]
+
+
+@pytest.mark.parametrize("name", KB_PUBLIC)
+# @verifies REQ-0010
+def test_the_kb_double_implements_every_method_with_the_same_signature(name):
+    assert hasattr(FakeKbStore, name), f"the double is missing {name}"
+
+    real = inspect.signature(getattr(KbStore, name))
+    fake = inspect.signature(getattr(FakeKbStore, name))
+
+    assert list(real.parameters) == list(fake.parameters)
+    for parameter in real.parameters.values():
+        assert fake.parameters[parameter.name].kind == parameter.kind
+        assert fake.parameters[parameter.name].default == parameter.default
+    assert inspect.iscoroutinefunction(getattr(KbStore, name))
+    assert inspect.iscoroutinefunction(getattr(FakeKbStore, name))

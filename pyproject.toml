@@ -26,7 +26,11 @@ dependencies = [
   "alembic>=1.18.4",
   "sqlalchemy[asyncio]>=2.0.46",
   "asyncpg>=0.31.0",
+  "typer>=0.15",
 ]
+
+[project.scripts]
+celine-assistant = "celine.assistant.cli:app"
 
 [dependency-groups]
 dev = [

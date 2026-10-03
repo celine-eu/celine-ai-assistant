@@ -11,8 +11,6 @@ from fastapi import HTTPException, Request
 from jose import jwt
 from pydantic import BaseModel, Field
 
-from celine.sdk.auth.jwt import extract_groups
-
 from .settings import settings
 
 log = logging.getLogger(__name__)
@@ -40,7 +38,12 @@ class UserInfo(BaseModel):
     last_name: str = Field(default="")
     email: str = Field(default="")
     groups: list[str] = Field(default_factory=list)
+    # The caller's REC, or none: no REC organization, or more than one.
+    community_id: str | None = Field(default=None)
+    # May use the administrator endpoints: a realm administrator, or a manager of the
+    # caller's own REC.
     is_admin: bool = Field(default=False)
+    is_realm_admin: bool = Field(default=False)
 
     @staticmethod
     def from_identity(user: UserIdentity) -> "UserInfo":
@@ -56,8 +59,15 @@ class UserInfo(BaseModel):
         info.last_name = claims.get("family_name", "") or ""
         info.email = claims.get("email", "") or ""
 
-        info.groups = extract_groups(claims)
-        info.is_admin = settings.admin_group in set(info.groups)
+        info.groups = realm_groups(claims)
+        try:
+            info.community_id = community_id_of(user)
+        except CommunityConflict:
+            info.community_id = None
+        info.is_realm_admin = is_admin(user)
+        info.is_admin = info.is_realm_admin or (
+            info.community_id is not None and can_manage(user, info.community_id)
+        )
         return info
 
 
@@ -65,10 +75,105 @@ class AuthError(Exception):
     pass
 
 
+class CommunityConflict(HTTPException):
+    """The token names more than one REC, which a member never has.
+
+    Refused rather than resolved: picking one would answer from one community's
+    documents to a member of another.
+    """
+
+    def __init__(self, communities: list[str]) -> None:
+        super().__init__(
+            status_code=403,
+            detail="Member of more than one renewable energy community; refusing to "
+            "choose one",
+        )
+        self.communities = communities
+
+
+def _normalize_groups(values: Any) -> list[str]:
+    # A bare string would otherwise be iterated into single-letter "groups".
+    if not isinstance(values, (list, tuple)):
+        return []
+    out: list[str] = []
+    for value in values:
+        if isinstance(value, str):
+            name = value.lstrip("/")
+            if name and name not in out:
+                out.append(name)
+    return out
+
+
+def _first(value: Any) -> str | None:
+    if isinstance(value, list):
+        value = value[0] if value else None
+    return value if isinstance(value, str) and value else None
+
+
+def _claims(user: UserIdentity) -> dict[str, Any]:
+    return user.raw.get("claims", {}) or {}
+
+
+def realm_groups(claims: dict[str, Any]) -> list[str]:
+    """The top-level `groups` claim only.
+
+    Not `celine.sdk.auth.jwt.extract_groups`, which merges in every organization's
+    groups: with it an `admins` group inside any one REC made its holder an
+    administrator of all of them.
+    """
+    return _normalize_groups(claims.get("groups"))
+
+
+def rec_memberships(claims: dict[str, Any]) -> dict[str, list[str]]:
+    """The REC organizations in the token, alias to that organization's groups.
+
+    The alias is the community id. KC 26 emits `type` flattened on the entry; the
+    nested `attributes.type` is read as a fallback, as `celine-sdk` does (the SDK
+    version pinned here has no public parser for the claim).
+    """
+    orgs = claims.get("organization")
+    if not isinstance(orgs, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for alias, data in orgs.items():
+        if not isinstance(alias, str) or not alias or not isinstance(data, dict):
+            continue
+        attributes = data.get("attributes")
+        org_type = _first(data.get("type")) or (
+            _first(attributes.get("type")) if isinstance(attributes, dict) else None
+        )
+        if org_type == settings.rec_organization_type:
+            out[alias] = _normalize_groups(data.get("groups"))
+    return out
+
+
+def community_id_of(user: UserIdentity) -> str | None:
+    """The caller's REC, None when they have none; `CommunityConflict` for several."""
+    memberships = rec_memberships(_claims(user))
+    if len(memberships) > 1:
+        log.warning(
+            "multiple_communities_refused",
+            extra={"user": user.user_id, "communities": sorted(memberships)},
+        )
+        raise CommunityConflict(sorted(memberships))
+    return next(iter(memberships), None)
+
+
 def is_admin(user: UserIdentity) -> bool:
-    claims = user.raw.get("claims", {}) or {}
-    groups = extract_groups(claims)
-    return settings.admin_group in set(groups)
+    """A realm administrator: may manage every community's knowledge."""
+    return settings.admin_group in realm_groups(_claims(user))
+
+
+def can_manage(user: UserIdentity, community_id: str) -> bool:
+    """May share documents with, and remove them from, this community.
+
+    A realm administrator, or a holder of one of `REC_MANAGER_GROUPS` inside that REC's
+    own organization — never a group held in another one.
+    """
+    if is_admin(user):
+        return True
+    groups = rec_memberships(_claims(user)).get(community_id, [])
+    return any(g in groups for g in settings.rec_manager_groups)
 
 
 def _extract_jwt_from_authorization(request: Request) -> str | None:

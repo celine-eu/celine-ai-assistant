@@ -5,29 +5,46 @@ from __future__ import annotations
 import pytest
 
 from celine.assistant import routes as routes_module
+from tests.conftest import COMMUNITY, OTHER_COMMUNITY
 
 
-# --- training material sync -------------------------------------------------
+# --- knowledge source sync -------------------------------------------------
 
 
 @pytest.fixture
 def fake_sync(monkeypatch):
     calls: list[dict] = []
 
-    async def _sync(*, target_ref, force_full=False):
-        calls.append({"target_ref": target_ref, "force_full": force_full})
-        if isinstance(calls[-1].get("raises"), Exception):  # pragma: no cover
-            raise calls[-1]["raises"]
-        return {"status": "ok", "git": {"updated": True}, "ingest": {"indexed": 3}}
+    async def _sync_all(*, kb_store, community_id=None, full=False):
+        calls.append({"community_id": community_id, "full": full})
+        return [{"source_id": "s1", "indexed": 3}]
 
-    monkeypatch.setattr(routes_module, "sync_training_materials", _sync)
+    monkeypatch.setattr(routes_module.kb_sources, "sync_all", _sync_all)
     return calls
 
 
 # @verifies REQ-0005
-async def test_a_sync_is_administrator_only(client, user_headers, fake_sync):
+async def test_a_sync_is_for_managers_only(client, member_headers, fake_sync):
+    r = await client.post("/admin/kb/sync", headers=member_headers, json={})
+
+    assert r.status_code == 403
+    assert fake_sync == []
+
+
+# @verifies REQ-0033
+async def test_a_manager_syncs_their_own_community(client, manager_headers, fake_sync):
+    r = await client.post("/admin/kb/sync", headers=manager_headers, json={"full": True})
+
+    assert r.status_code == 200
+    assert r.json()["community_id"] == COMMUNITY
+    assert r.json()["sources"][0]["indexed"] == 3
+    assert fake_sync == [{"community_id": COMMUNITY, "full": True}]
+
+
+# @verifies REQ-0005
+async def test_a_manager_cannot_sync_another_community(client, manager_headers, fake_sync):
     r = await client.post(
-        "/admin/training-materials/sync", headers=user_headers, json={}
+        "/admin/kb/sync", headers=manager_headers, json={"community_id": OTHER_COMMUNITY}
     )
 
     assert r.status_code == 403
@@ -35,68 +52,20 @@ async def test_a_sync_is_administrator_only(client, user_headers, fake_sync):
 
 
 # @verifies REQ-0033
-async def test_an_administrator_can_sync_to_a_named_ref(
+async def test_a_realm_administrator_names_the_community_to_sync(
     client, admin_headers, fake_sync
 ):
-    r = await client.post(
-        "/admin/training-materials/sync",
-        headers=admin_headers,
-        json={"target_ref": "v2.1.0"},
-    )
+    assert (await client.post("/admin/kb/sync", headers=admin_headers, json={})).status_code == 400
 
+    r = await client.post(
+        "/admin/kb/sync", headers=admin_headers, json={"community_id": OTHER_COMMUNITY}
+    )
     assert r.status_code == 200
-    assert r.json()["ingest"]["indexed"] == 3
-    assert fake_sync == [{"target_ref": "v2.1.0", "force_full": False}]
-
-
-# @verifies REQ-0033
-async def test_a_sync_without_a_ref_uses_the_configured_default(
-    client, admin_headers, fake_sync
-):
-    await client.post("/admin/training-materials/sync", headers=admin_headers, json={})
-    assert fake_sync[0]["target_ref"] is None
-
-
-async def test_a_refused_sync_is_a_conflict_not_a_server_error(
-    client, admin_headers, monkeypatch
-):
-    """A dirty checkout is the operator's problem to clear, and 409 is what says so.
-    Anything else this raises is still a 500.
-
-    @verifies REQ-0033
-    """
-
-    async def _refuse(*, target_ref, force_full=False):
-        raise RuntimeError("Training materials repo has local changes; refusing sync")
-
-    monkeypatch.setattr(routes_module, "sync_training_materials", _refuse)
-
-    r = await client.post(
-        "/admin/training-materials/sync", headers=admin_headers, json={}
-    )
-
-    assert r.status_code == 409
-    assert "local changes" in r.json()["detail"]
-
-
-# @verifies REQ-0033
-async def test_an_unexpected_sync_failure_is_a_server_error(
-    client, admin_headers, monkeypatch
-):
-
-    async def _explode(*, target_ref, force_full=False):
-        raise OSError("disk full")
-
-    monkeypatch.setattr(routes_module, "sync_training_materials", _explode)
-
-    r = await client.post(
-        "/admin/training-materials/sync", headers=admin_headers, json={}
-    )
-    assert r.status_code == 500
+    assert fake_sync == [{"community_id": OTHER_COMMUNITY, "full": False}]
 
 
 async def test_the_error_boundary_hides_the_detail_of_an_unexpected_failure(
-    client, admin_headers, monkeypatch
+    client, manager_headers, monkeypatch
 ):
     """Whatever went wrong upstream, the caller is told "Internal Server Error" and the
     traceback goes to the log. The middleware in `main.py` is what guarantees it.
@@ -104,15 +73,14 @@ async def test_the_error_boundary_hides_the_detail_of_an_unexpected_failure(
     @verifies REQ-0034
     """
 
-    async def _explode(*, target_ref, force_full=False):
+    async def _explode(*, kb_store, community_id=None, full=False):
         raise OSError("/mnt/secrets/token is unreadable")
 
-    monkeypatch.setattr(routes_module, "sync_training_materials", _explode)
+    monkeypatch.setattr(routes_module.kb_sources, "sync_all", _explode)
 
-    r = await client.post(
-        "/admin/training-materials/sync", headers=admin_headers, json={}
-    )
+    r = await client.post("/admin/kb/sync", headers=manager_headers, json={})
 
+    assert r.status_code == 500
     assert r.json() == {"detail": "Internal Server Error"}
 
 

@@ -10,11 +10,13 @@ The chat UI is part of [celine-frontend](https://github.com/celine-eu/celine-fro
 - **Skill system** — modular skills for energy data (Digital Twin), weather/forecasts, flexibility/gamification, REC registry, and document search
 - Streaming chat via Server-Sent Events (SSE) with tool progress events
 - Conversation history persisted in PostgreSQL
-- File upload with automatic RAG ingestion into Qdrant
+- **One knowledge base per REC** — each community's documents in a Qdrant collection of its own, resolved from the REC organization in the caller's token
+- File upload with automatic RAG ingestion into the caller's community
 - Vision support for image attachments (captioning via the vision model)
-- Automatic sync of `celine-training-materials` from a Git repository
+- Knowledge sources (git repositories or directories) registered per community
+- `celine-assistant kb` CLI to sync sources, rebuild knowledge bases and switch embedding models
 - JWT authentication (trusted headers from oauth2_proxy or JWKS verification)
-- Admin endpoints for system uploads and training materials sync
+- Admin endpoints for REC managers: shared uploads and source sync
 
 ## Quick Start
 
@@ -38,27 +40,30 @@ task run
 | `LLM_EMBED_DIMENSIONS` | asked of the model | Vector size of the collection |
 | `QDRANT_URL` | `http://host.docker.internal:6333` | Qdrant vector DB URL |
 | `QDRANT_API_KEY` | — | Optional Qdrant API key |
-| `QDRANT_COLLECTION` | `celine_docs` | Qdrant collection name |
+| `QDRANT_COLLECTION` | `celine_docs` | Prefix of every community's knowledge-base alias |
+| `KB_SOURCES_DIR` | `./data/kb-sources` | Where git sources are cloned |
+| `KB_SYNC_ON_START` | `false` | Sync every registered source when the service starts |
+| `KB_GIT_TOKEN` | — | Token for private git sources (sent only to `KB_GIT_TOKEN_HOST`, default `github.com`) |
+| `REC_ORGANIZATION_TYPE` | `rec` | Organization type that marks a REC in the token's `organization` claim |
+| `REC_MANAGER_GROUPS` | `["managers","admins"]` | Groups inside a REC's organization that manage its knowledge |
 | `DATABASE_URL` | `postgresql+asyncpg://...host.docker.internal:15432/ai_assistant` | PostgreSQL async URL |
 | `OAUTH2_TRUST_HEADERS` | `false` | Trust unverified proxy headers when no token is present (opt-in) |
 | `OAUTH2_JWKS_URL` | — | JWKS endpoint (falls back to `CELINE_OIDC_JWKS_URI`); required unless `OAUTH2_ISSUER` is set |
 | `OAUTH2_ISSUER` | — | Expected issuer; JWKS discovered from it, and a mismatching token `iss` is refused |
 | `OAUTH2_ALGORITHMS` | `["RS256"]` | Accepted signature algorithms (pinned, not from the token header) |
 | `OAUTH2_AUDIENCE` | `oauth2_proxy` | Expected JWT audience |
-| `ADMIN_GROUP` | `admins` | Group name for admin access |
+| `ADMIN_GROUP` | `admins` | Realm group for administrator access (top-level `groups` claim only) |
 | `DIGITAL_TWIN_API_URL` | `http://172.17.0.1:8002` | Digital Twin API for energy/weather/forecast skills |
 | `DATASETS_API_URL` | `http://172.17.0.1:8001` | Dataset API (skill currently disabled) |
 | `REC_REGISTRY_API_URL` | `http://172.17.0.1:8004` | REC Registry API for membership/assets/delivery points |
 | `FLEXIBILITY_API_URL` | `http://172.17.0.1:8017` | Flexibility API for load-shift suggestions and gamification |
 | `MAX_TOOL_ROUNDS` | `6` | Max agentic tool-calling rounds per chat request |
 | `CHAT_HISTORY_LIMIT` | `20` | Max prior messages included in the prompt |
-| `TRAINING_MATERIALS_PATH` | `/workspace/repositories/celine-training-materials` | Local path for training materials |
-| `TRAINING_MATERIALS_REPO_URL` | — | Git URL for auto-cloning training materials |
-| `TRAINING_MATERIALS_REF` | `origin/main` | Git ref for training materials |
-| `TRAINING_MATERIALS_SYNC_ON_START` | `true` | Auto-sync training materials on startup |
 | `UPLOADS_URI` | `file://./data/uploads` | Upload storage URI |
 | `MAX_UPLOAD_MB` | `25` | Max upload size in MB |
-| `INGEST_ENABLE` | `true` | Enable RAG ingestion |
+
+`TRAINING_MATERIALS_*`, `MANIFEST_PATH`, `INGEST_ENABLE`, `INGEST_FORCE_RELOAD_ON_START`
+and `DOCS_POLL_INTERVAL_SECONDS` are no longer read; a leftover is logged at startup.
 
 ## API Overview
 
@@ -69,10 +74,56 @@ task run
 | **suggestions** | `GET /suggestions` (localized prompt suggestions and tool labels) |
 | **conversations** | `GET /conversations`, `GET /conversations/{id}/messages`, `DELETE /conversations/{id}` |
 | **attachments** | `GET /attachments`, `GET /attachments/{id}/raw`, `DELETE /attachments/{id}` |
-| **uploads** | `POST /upload` (user), `POST /admin/uploads` (system) |
-| **admin** | `POST /admin/training-materials/sync` |
+| **uploads** | `POST /upload` (user), `POST /admin/uploads` (shared with a community) |
+| **admin** | `POST /admin/kb/sync` |
 | **user** | `GET /user` |
 | **ops** | `GET /health` |
+
+## Knowledge bases
+
+Each REC has its own knowledge base: the sources registered for it, the documents its
+managers shared, and its members' own uploads. A caller's community is the one
+organization of type `rec` in their token; a token naming several is refused. See
+[ADR-0008](docs/decisions/ADR-0008-one-knowledge-base-per-community.md).
+
+They are operated with `celine-assistant kb`, run in the service image (it needs the
+service's `DATABASE_URL`, `QDRANT_*` and `LLM_EMBED_*`). Every command prints JSON.
+
+```bash
+# register sources: a git repository (optionally a ref and a subdirectory) or a directory
+celine-assistant kb source add --community example-rec --git https://git.example/handbook.git --ref main --path docs
+celine-assistant kb source add --community example-rec --dir /data/example-rec-handbook
+celine-assistant kb source list
+celine-assistant kb sync [--community example-rec] [--full]
+
+# rebuild from the sources and the stored attachment text, then switch atomically
+celine-assistant kb reindex --community example-rec [--re-extract]
+celine-assistant kb reindex --all
+celine-assistant kb status
+celine-assistant kb prune [--keep 1] [--dry-run]
+```
+
+**Switching the embedding model.** Build the new model's knowledge bases beside the
+current ones, deploy with the new model, then drop the old generations:
+
+```bash
+celine-assistant kb reindex --all --embed-model <new-model> --embed-dimensions <size>
+# deploy with LLM_EMBED_MODEL=<new-model>
+celine-assistant kb prune
+```
+
+The service refuses to start if a community has knowledge bases only for a model other
+than `LLM_EMBED_MODEL`.
+
+**Upgrading from the single collection.** Once, after `alembic upgrade head`: assign
+every existing upload to one community, register the old training-materials repository
+as its source, and rebuild it. The community is always named; there is no default.
+
+```bash
+celine-assistant kb migrate-legacy --community <community> --git <training-materials repo> --dry-run
+celine-assistant kb migrate-legacy --community <community> --git <training-materials repo>
+celine-assistant kb prune --legacy   # once satisfied: deletes the old collection
+```
 
 ## Skills
 
