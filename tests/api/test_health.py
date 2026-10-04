@@ -57,7 +57,7 @@ async def test_the_user_route_projects_the_identity(client, user_headers):
 
     assert body["user_id"] == "alice"
     assert body["email"] == "alice@example.test"
-    assert body["groups"] == ["members"]
+    assert body["roles"] == []
     assert body["is_admin"] is False
     assert body["community_id"] is None
 
@@ -66,14 +66,15 @@ async def test_the_user_route_projects_the_identity(client, user_headers):
 async def test_an_admin_is_reported_as_one(client, admin_headers):
     body = (await client.get("/user", headers=admin_headers)).json()
     assert body["is_admin"] is True
-    assert body["is_realm_admin"] is True
+    assert body["is_platform_admin"] is True
+    assert body["roles"] == ["platform-admin"]
 
 
 async def test_a_manager_may_administer_their_community_and_no_other(
     client, manager_headers
 ):
     """`is_admin` is what the UI gates its administrator features on; a REC's manager
-    has them for that REC. `groups` stays realm-level only.
+    has them for that REC. `roles` stays platform-level only.
 
     @verifies REQ-0004 @verifies REQ-0005
     """
@@ -81,8 +82,8 @@ async def test_a_manager_may_administer_their_community_and_no_other(
 
     assert body["community_id"] == "example-rec"
     assert body["is_admin"] is True
-    assert body["is_realm_admin"] is False
-    assert "managers" not in body["groups"]
+    assert body["is_platform_admin"] is False
+    assert body["roles"] == []
 
 
 # @verifies REQ-0004

@@ -373,11 +373,11 @@ async def test_a_manager_cannot_share_with_another_community(
     assert upload_env["indexed"] == []
 
 
-async def test_an_admins_group_inside_a_rec_is_not_a_realm_administrator(
+async def test_an_admins_group_inside_a_rec_is_not_a_platform_administrator(
     client, tokens, upload_env
 ):
-    """`extract_groups` merges every organization's groups into one list; read that
-    way, `admins` inside one REC made its holder an administrator of all of them.
+    """A merged list of every organization's groups (the SDK's retired helper) read
+    `admins` inside one REC as an administrator of all of them.
 
     @verifies REQ-0005
     """
@@ -387,8 +387,45 @@ async def test_an_admins_group_inside_a_rec_is_not_a_realm_administrator(
     assert (await shared(client, headers, OTHER_COMMUNITY)).status_code == 403
 
 
+async def test_a_realm_group_in_a_verified_token_grants_nothing(
+    client, tokens, upload_env
+):
+    """Realm groups are gone from the platform. A token that still carries `/admins`
+    (and the retired realm role `admin`) is an ordinary caller: no community of its own,
+    so it may share with none.
+
+    @verifies REQ-0004 @verifies REQ-0005
+    """
+    tokens.issue("legacy", groups=("/admins", "admins"), token="legacy-token")
+    tokens.claims["legacy-token"]["realm_access"] = {"roles": ["admin"]}
+    headers = {"x-auth-request-access-token": "legacy-token"}
+
+    assert (await shared(client, headers, COMMUNITY)).status_code == 403
+    assert (await shared(client, headers, OTHER_COMMUNITY)).status_code == 403
+    assert upload_env["indexed"] == []
+    body = (await client.get("/user", headers=headers)).json()
+    assert body["is_platform_admin"] is False
+    assert body["is_admin"] is False
+
+
+async def test_a_header_claiming_the_role_is_not_a_platform_administrator(
+    client, upload_env
+):
+    """With header trust on (dev only), the headers name a caller and nothing more.
+
+    @verifies REQ-0003 @verifies REQ-0004
+    """
+    headers = {
+        "x-auth-request-user": "mallory",
+        "x-auth-request-groups": "admins,platform-admin,role:platform-admin",
+    }
+
+    assert (await shared(client, headers, COMMUNITY)).status_code == 403
+    assert upload_env["indexed"] == []
+
+
 # @verifies REQ-0005
-async def test_a_realm_administrator_names_the_community(
+async def test_a_platform_administrator_names_the_community(
     client, admin_headers, upload_env
 ):
     assert (await shared(client, admin_headers)).status_code == 400

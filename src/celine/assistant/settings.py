@@ -132,7 +132,6 @@ class Settings(BaseSettings):
         default=None, alias="OAUTH2_JWT_COOKIE_NAME"
     )
 
-    admin_group: str = Field(default="admins", alias="ADMIN_GROUP")
     digital_twin_api_url: str | None = Field(
         default="http://172.17.0.1:8002",
         alias="DIGITAL_TWIN_API_URL",

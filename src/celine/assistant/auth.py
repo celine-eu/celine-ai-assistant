@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from celine.sdk.auth import is_platform_admin as _claims_hold_platform_admin
+from celine.sdk.auth import organization_groups, realm_roles
 from fastapi import HTTPException, Request
 from jose import jwt
 from pydantic import BaseModel, Field
@@ -37,13 +39,15 @@ class UserInfo(BaseModel):
     first_name: str = Field(default="")
     last_name: str = Field(default="")
     email: str = Field(default="")
-    groups: list[str] = Field(default_factory=list)
+    # The caller's realm roles (`realm_access.roles`). Platform level only: an
+    # organization's groups are never listed here.
+    roles: list[str] = Field(default_factory=list)
     # The caller's REC, or none: no REC organization, or more than one.
     community_id: str | None = Field(default=None)
-    # May use the administrator endpoints: a realm administrator, or a manager of the
-    # caller's own REC.
+    # May use the administrator endpoints: a platform administrator, or a manager of
+    # the caller's own REC.
     is_admin: bool = Field(default=False)
-    is_realm_admin: bool = Field(default=False)
+    is_platform_admin: bool = Field(default=False)
 
     @staticmethod
     def from_identity(user: UserIdentity) -> "UserInfo":
@@ -59,13 +63,13 @@ class UserInfo(BaseModel):
         info.last_name = claims.get("family_name", "") or ""
         info.email = claims.get("email", "") or ""
 
-        info.groups = realm_groups(claims)
+        info.roles = realm_roles(claims)
         try:
             info.community_id = community_id_of(user)
         except CommunityConflict:
             info.community_id = None
-        info.is_realm_admin = is_admin(user)
-        info.is_admin = info.is_realm_admin or (
+        info.is_platform_admin = is_platform_admin(user)
+        info.is_admin = info.is_platform_admin or (
             info.community_id is not None and can_manage(user, info.community_id)
         )
         return info
@@ -91,19 +95,6 @@ class CommunityConflict(HTTPException):
         self.communities = communities
 
 
-def _normalize_groups(values: Any) -> list[str]:
-    # A bare string would otherwise be iterated into single-letter "groups".
-    if not isinstance(values, (list, tuple)):
-        return []
-    out: list[str] = []
-    for value in values:
-        if isinstance(value, str):
-            name = value.lstrip("/")
-            if name and name not in out:
-                out.append(name)
-    return out
-
-
 def _first(value: Any) -> str | None:
     if isinstance(value, list):
         value = value[0] if value else None
@@ -114,22 +105,13 @@ def _claims(user: UserIdentity) -> dict[str, Any]:
     return user.raw.get("claims", {}) or {}
 
 
-def realm_groups(claims: dict[str, Any]) -> list[str]:
-    """The top-level `groups` claim only.
-
-    Not `celine.sdk.auth.jwt.extract_groups`, which merges in every organization's
-    groups: with it an `admins` group inside any one REC made its holder an
-    administrator of all of them.
-    """
-    return _normalize_groups(claims.get("groups"))
-
-
 def rec_memberships(claims: dict[str, Any]) -> dict[str, list[str]]:
-    """The REC organizations in the token, alias to that organization's groups.
+    """The REC organizations in the token, alias to the groups held inside each.
 
-    The alias is the community id. KC 26 emits `type` flattened on the entry; the
-    nested `attributes.type` is read as a fallback, as `celine-sdk` does (the SDK
-    version pinned here has no public parser for the claim).
+    The alias is the community id. Each list is that one organization's groups
+    (`celine.sdk.auth.organization_groups`) and is valid only for it. KC 26 emits
+    `type` flattened on the entry; the nested `attributes.type` is read as a fallback,
+    as `celine-sdk` does.
     """
     orgs = claims.get("organization")
     if not isinstance(orgs, dict):
@@ -143,7 +125,7 @@ def rec_memberships(claims: dict[str, Any]) -> dict[str, list[str]]:
             _first(attributes.get("type")) if isinstance(attributes, dict) else None
         )
         if org_type == settings.rec_organization_type:
-            out[alias] = _normalize_groups(data.get("groups"))
+            out[alias] = organization_groups(claims, alias)
     return out
 
 
@@ -159,18 +141,23 @@ def community_id_of(user: UserIdentity) -> str | None:
     return next(iter(memberships), None)
 
 
-def is_admin(user: UserIdentity) -> bool:
-    """A realm administrator: may manage every community's knowledge."""
-    return settings.admin_group in realm_groups(_claims(user))
+def is_platform_admin(user: UserIdentity) -> bool:
+    """A platform administrator: may manage every community's knowledge.
+
+    Exactly the holders of the `platform-admin` realm role (`realm_access.roles`, via
+    `celine.sdk.auth.is_platform_admin`). An `admins` group inside an organization is
+    not one, and neither is a realm group: the top-level `groups` claim grants nothing.
+    """
+    return _claims_hold_platform_admin(_claims(user))
 
 
 def can_manage(user: UserIdentity, community_id: str) -> bool:
     """May share documents with, and remove them from, this community.
 
-    A realm administrator, or a holder of one of `REC_MANAGER_GROUPS` inside that REC's
-    own organization — never a group held in another one.
+    A platform administrator, or a holder of one of `REC_MANAGER_GROUPS` inside that
+    REC's own organization — never a group held in another one.
     """
-    if is_admin(user):
+    if is_platform_admin(user):
         return True
     groups = rec_memberships(_claims(user)).get(community_id, [])
     return any(g in groups for g in settings.rec_manager_groups)
@@ -338,18 +325,14 @@ def _trusted_identity_from_headers(request: Request) -> UserIdentity | None:
     if not user:
         return None
 
-    groups_raw = (
-        request.headers.get("x-auth-request-groups")
-        or request.headers.get("x-auth-request-user-groups")
-        or ""
-    )
-    groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
-
+    # An identity and nothing more. `x-auth-request-groups` is deliberately not read:
+    # it is a flat list (oauth2-proxy's keycloak-oidc provider mixes `role:<name>`
+    # entries into it), and platform roles are taken only from a verified token's
+    # `realm_access.roles`. A header identity is never a platform administrator.
     claims: dict[str, Any] = {
         "sub": user,
         "email": request.headers.get("x-auth-request-email") or "",
         "name": request.headers.get("x-auth-request-preferred-username") or user,
-        "groups": groups,
     }
 
     return UserIdentity(

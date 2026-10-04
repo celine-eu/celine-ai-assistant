@@ -63,7 +63,6 @@ collection until they are uploaded again.
 | `OAUTH2_ALGORITHMS` | `list[str]` | `["RS256"]` | Accepted signature algorithms. Pinned, not read from the token header |
 | `OAUTH2_AUDIENCE` | `str?` | `oauth2_proxy` | Expected JWT audience |
 | `OAUTH2_JWT_COOKIE_NAME` | `str?` | — | Optional JWT cookie name |
-| `ADMIN_GROUP` | `str` | `admins` | Realm group for administrator access. Read from the top-level `groups` claim only — a group inside an organization never makes a realm administrator |
 | `REC_ORGANIZATION_TYPE` | `str` | `rec` | Organization type marking a REC in the token's `organization` claim; its alias is the caller's community |
 | `REC_MANAGER_GROUPS` | `list[str]` | `["managers", "admins"]` | Groups inside a REC's own organization that may share documents with it and sync its sources |
 

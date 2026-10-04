@@ -19,8 +19,10 @@ the database with no path back into the index.
 - **The community is the REC organization in the caller's token.** Its Keycloak alias is
   the community id (and the Digital Twin's). A member belongs to exactly one; a token
   naming several is refused rather than resolved. A REC's knowledge is managed by
-  its own `managers` / `admins` organization groups or by a realm administrator — the
-  rule onboarding applies — and an organization group never makes a realm administrator.
+  its own `managers` / `admins` organization groups or by a platform administrator — the
+  rule onboarding applies — and an organization group never makes a platform
+  administrator. (Since 2026-10-03 a platform administrator is the holder of the
+  `platform-admin` realm role, REQ-0004; it was the realm group `ADMIN_GROUP`.)
 - **Each community has a knowledge base of its own**: a Qdrant alias
   `<QDRANT_COLLECTION>__<community_id>__<fingerprint>` over a timestamped collection.
   There is no shared corpus collection; reference material is a *source* — a git
@@ -46,5 +48,5 @@ the database with no path back into the index.
   `KB_SYNC_ON_START` is off by default. The infra chart's `TRAINING_MATERIALS_*` are read by
   nothing and are reported at startup until removed.
 - Old generations accumulate until `kb prune`; that is the rollback window, and the cost.
-- The upload API gained `community_id` on `/admin/uploads` (a realm administrator's), and
+- The upload API gained `community_id` on `/admin/uploads` (a platform administrator's), and
   `/admin/training-materials/sync` became `/admin/kb/sync`.

@@ -20,9 +20,11 @@ from celine.assistant.auth import (
     UserInfo,
     extract_access_token,
     get_user_identity,
-    is_admin,
+    is_platform_admin,
 )
 from celine.assistant.settings import settings
+
+PLATFORM_ADMIN = "platform-admin"
 
 
 def make_request(
@@ -109,8 +111,31 @@ async def test_trusted_headers_produce_an_identity():
 
     assert identity.user_id == "alice"
     assert identity.raw["source"] == "trusted-headers"
-    # Blank entries are dropped and each name is stripped.
-    assert identity.raw["claims"]["groups"] == ["members", "admins"]
+
+
+async def test_a_header_identity_carries_no_grant():
+    """`x-auth-request-groups` is not read. oauth2-proxy's keycloak-oidc provider puts
+    realm roles into it as `role:<name>`, beside the groups; neither form makes a
+    platform administrator, which only a verified token's `realm_access.roles` does.
+
+    @verifies REQ-0003 @verifies REQ-0004
+    """
+    identity = await get_user_identity(
+        make_request(
+            {
+                "x-auth-request-user": "mallory",
+                "x-auth-request-groups": f"admins,/admins,{PLATFORM_ADMIN},role:{PLATFORM_ADMIN}",
+            }
+        )
+    )
+
+    assert "groups" not in identity.raw["claims"]
+    assert "realm_access" not in identity.raw["claims"]
+    assert not is_platform_admin(identity)
+    info = UserInfo.from_identity(identity)
+    assert info.roles == []
+    assert info.is_platform_admin is False
+    assert info.is_admin is False
 
 
 # @verifies REQ-0003
@@ -169,42 +194,57 @@ async def test_an_unverifiable_token_with_no_headers_is_rejected():
 # --- admin ------------------------------------------------------------------
 
 
-def identity_with_groups(*groups: str) -> UserIdentity:
-    return UserIdentity(
-        user_id="u", raw={"source": "test", "claims": {"groups": list(groups)}}
-    )
+def identity_with(claims: dict) -> UserIdentity:
+    return UserIdentity(user_id="u", raw={"source": "test", "claims": claims})
+
+
+def identity_with_roles(*roles: str) -> UserIdentity:
+    return identity_with({"realm_access": {"roles": list(roles)}})
 
 
 # @verifies REQ-0004
-def test_admin_is_group_membership():
-    assert is_admin(identity_with_groups("members", settings.admin_group))
-    assert not is_admin(identity_with_groups("members"))
-    assert not is_admin(UserIdentity(user_id="u", raw={}))
+def test_a_platform_administrator_holds_the_platform_admin_realm_role():
+    assert is_platform_admin(identity_with_roles("offline_access", PLATFORM_ADMIN))
+    assert not is_platform_admin(identity_with_roles("offline_access"))
+    assert not is_platform_admin(UserIdentity(user_id="u", raw={}))
 
 
-def test_admin_group_is_matched_with_the_leading_slash_stripped():
-    """Keycloak emits `/admins`; `extract_groups` normalises it. @verifies REQ-0004"""
-    assert is_admin(identity_with_groups(f"/{settings.admin_group}"))
+@pytest.mark.parametrize(
+    "claims",
+    [
+        pytest.param({"groups": ["/admins", "admins"]}, id="realm-group-admins"),
+        pytest.param({"groups": [PLATFORM_ADMIN, f"/{PLATFORM_ADMIN}"]}, id="realm-group-named-like-the-role"),
+        pytest.param({"realm_access": {"roles": ["admin"]}}, id="legacy-realm-role-admin"),
+        pytest.param({"roles": [PLATFORM_ADMIN]}, id="top-level-roles"),
+        pytest.param(
+            {"resource_access": {"some-client": {"roles": [PLATFORM_ADMIN]}}},
+            id="client-role",
+        ),
+        pytest.param({"realm_access": {"roles": PLATFORM_ADMIN}}, id="roles-as-a-bare-string"),
+        pytest.param({"realm_access": [PLATFORM_ADMIN]}, id="realm-access-as-a-list"),
+    ],
+)
+def test_nothing_but_the_realm_role_makes_a_platform_administrator(claims):
+    """A realm group still present in a token, `/admins` included, grants nothing; nor
+    does the retired realm role `admin`, a client role, or a malformed claim.
+
+    @verifies REQ-0004
+    """
+    assert not is_platform_admin(identity_with(claims))
+    assert not can_manage(identity_with(claims), "example-rec")
 
 
-def test_an_admins_group_inside_an_organization_is_not_a_realm_administrator():
-    """This was asserted the other way round until 2026-10-02. Read through
-    `extract_groups`, which merges every organization's groups, an `admins` group inside
-    any one REC made its holder an administrator of every REC.
+def test_an_admins_group_inside_an_organization_is_not_a_platform_administrator():
+    """This was asserted the other way round until 2026-10-02: read through the SDK's
+    retired merged-groups helper, an `admins` group inside any one REC made its holder an
+    administrator of every REC.
 
     @verifies REQ-0004 @verifies REQ-0005
     """
-    identity = UserIdentity(
-        user_id="u",
-        raw={
-            "claims": {
-                "organization": {
-                    "example-rec": {"type": ["rec"], "groups": [settings.admin_group]}
-                },
-            }
-        },
+    identity = identity_with(
+        {"organization": {"example-rec": {"type": ["rec"], "groups": ["/admins"]}}}
     )
-    assert not is_admin(identity)
+    assert not is_platform_admin(identity)
     assert can_manage(identity, "example-rec")
     assert not can_manage(identity, "other-rec")
 
@@ -281,8 +321,8 @@ def test_a_manager_group_in_an_organization_that_is_not_a_rec_manages_nothing():
 
 
 # @verifies REQ-0005
-def test_a_realm_administrator_manages_every_community():
-    identity = identity_with_groups(settings.admin_group)
+def test_a_platform_administrator_manages_every_community():
+    identity = identity_with_roles(PLATFORM_ADMIN)
     assert can_manage(identity, "example-rec")
     assert can_manage(identity, "other-rec")
 
@@ -298,7 +338,8 @@ def test_user_info_is_projected_from_the_claims():
                 "given_name": "Alice",
                 "family_name": "Example",
                 "email": "alice@example.test",
-                "groups": ["members", settings.admin_group],
+                "groups": ["/admins"],
+                "realm_access": {"roles": ["offline_access", PLATFORM_ADMIN]},
             }
         },
     )
@@ -310,6 +351,8 @@ def test_user_info_is_projected_from_the_claims():
     assert info.first_name == "Alice"
     assert info.last_name == "Example"
     assert info.email == "alice@example.test"
+    assert info.roles == ["offline_access", PLATFORM_ADMIN]
+    assert info.is_platform_admin is True
     assert info.is_admin is True
 
 
@@ -326,7 +369,7 @@ def test_user_info_of_an_identity_with_no_claims_is_empty_but_not_an_error():
     info = UserInfo.from_identity(UserIdentity(user_id="alice", raw={}))
     assert info.user_id == "alice"
     assert info.username == ""
-    assert info.groups == []
+    assert info.roles == []
     assert info.is_admin is False
 
 

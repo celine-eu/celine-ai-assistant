@@ -52,7 +52,7 @@ async def test_a_manager_cannot_sync_another_community(client, manager_headers, 
 
 
 # @verifies REQ-0033
-async def test_a_realm_administrator_names_the_community_to_sync(
+async def test_a_platform_administrator_names_the_community_to_sync(
     client, admin_headers, fake_sync
 ):
     assert (await client.post("/admin/kb/sync", headers=admin_headers, json={})).status_code == 400

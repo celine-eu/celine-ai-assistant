@@ -34,30 +34,44 @@ whose `iss` differs is refused. The signature algorithm is taken from
 ### REQ-0003 — trusted headers are an accepted identity
 
 With `OAUTH2_TRUST_HEADERS` enabled, `x-auth-request-user` (or `x-auth-request-email`)
-identifies the caller and `x-auth-request-groups` carries their groups, comma-separated,
-with blank entries dropped. **The switch is off by default**: unless a deployment opts in,
+identifies the caller. **A header identity carries no grant**: `x-auth-request-groups` is
+not read, so no header makes a platform administrator (REQ-0004) or names an
+organization (REQ-0040). Platform roles come only from a verified token. **The switch is
+off by default**: unless a deployment opts in,
 headers alone are not an identity and a request carrying no verifiable token is answered
 `401`. Outside dev a deployment cannot opt in: startup refuses the switch (REQ-0045).
 
-### REQ-0004 — administrator status is realm group membership
+### REQ-0004 — a platform administrator holds the `platform-admin` realm role
 
-A caller is a realm administrator exactly when the top-level `groups` claim contains
-`ADMIN_GROUP`, with a leading `/` stripped. **Groups inside an organization
-(`organization.<alias>.groups`) never make a realm administrator**: read that way, an
-`admins` group inside one REC made its holder an administrator of every REC (closed
-2026-10-02). No user id is ever special-cased.
+There are exactly two levels of authority, and they are never merged:
 
-`GET /user` reports `community_id`, `is_realm_admin`, and `is_admin` — true for a realm
-administrator and for a manager of the caller's own community (REQ-0005), which is what
-the UI gates its administrator features on.
+- **The platform:** a caller is a platform administrator exactly when the verified
+  token's `realm_access.roles` contains `platform-admin`. That role is the only
+  platform-wide grant.
+- **An organization:** the groups in `organization.<alias>.groups` are valid only inside
+  that organization (REQ-0005).
+
+Nothing else makes a platform administrator. **Not** an `admins` group inside any
+organization, which held that way made its holder an administrator of every REC (closed
+2026-10-02). **Not** a realm group (top-level `groups` claim), which the platform no
+longer uses: one still present in a token, `/admins` included, grants nothing. **Not** a
+role with that name under `resource_access`, a top-level `roles` claim, or a trusted
+header (REQ-0003). No user id is ever special-cased, and the role name is not
+configurable.
+
+`GET /user` reports `roles` (the caller's realm roles), `community_id`,
+`is_platform_admin`, and `is_admin` — true for a platform administrator and for a
+manager of the caller's own community (REQ-0005), which is what the UI gates its
+administrator features on.
 
 ### REQ-0005 — a community's knowledge is managed by its managers
 
 `POST /admin/uploads` and `POST /admin/kb/sync` act on one community. A caller may use
-them for a community when they are a realm administrator, or hold one of
+them for a community when they are a platform administrator (REQ-0004), or hold one of
 `REC_MANAGER_GROUPS` (default `managers`, `admins`) **inside that REC's own
-organization** — the rule onboarding applies. A manager acts on their own community; a
-realm administrator, who has none, names one (`community_id`), and naming none is `400`.
+organization** — the rule onboarding applies. A group held in another organization says
+nothing about this one. A manager acts on their own community; a platform administrator,
+who has none, names one (`community_id`), and naming none is `400`.
 Anyone else is answered `403` and the operation does not run.
 
 ### REQ-0040 — the caller's community is the one REC organization in their token

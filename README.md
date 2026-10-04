@@ -63,7 +63,6 @@ until it is, install the SDK checkout editable
 | `OAUTH2_ISSUER` | — | Expected issuer; JWKS discovered from it, and a mismatching token `iss` is refused. Required outside `CELINE_ENV=dev` |
 | `OAUTH2_ALGORITHMS` | `["RS256"]` | Accepted signature algorithms (pinned, not from the token header) |
 | `OAUTH2_AUDIENCE` | `oauth2_proxy` | Expected JWT audience |
-| `ADMIN_GROUP` | `admins` | Realm group for administrator access (top-level `groups` claim only) |
 | `DIGITAL_TWIN_API_URL` | `http://172.17.0.1:8002` | Digital Twin API for energy/weather/forecast skills |
 | `DATASETS_API_URL` | `http://172.17.0.1:8001` | Dataset API (skill currently disabled) |
 | `REC_REGISTRY_API_URL` | `http://172.17.0.1:8004` | REC Registry API for membership/assets/delivery points |

@@ -17,7 +17,7 @@ from .auth import (
     community_id_of,
     extract_access_token,
     get_user_identity,
-    is_admin,
+    is_platform_admin,
 )
 from .kb_collections import InvalidCommunityId, validate_community_id
 from .kb_store import KbStore
@@ -56,9 +56,9 @@ def _is_public_source(source: dict) -> bool:
 
 
 def _may_read(att: dict, user: UserIdentity, community_id: str | None) -> bool:
-    """A shared attachment is its community's; a member's own is theirs. A realm
+    """A shared attachment is its community's; a member's own is theirs. A platform
     administrator reads either."""
-    if is_admin(user):
+    if is_platform_admin(user):
         return True
     if att["scope"] == "system":
         return community_id is not None and att.get("community_id") == community_id
@@ -118,7 +118,7 @@ def _attachment_context_block(atts: list[dict]) -> dict:
 def _managed_community(user: UserIdentity, requested: str | None) -> str:
     """The community an administrator endpoint acts on, which the caller must manage.
 
-    A REC manager acts on their own REC. A realm administrator has none of their own
+    A REC manager acts on their own REC. A platform administrator has none of their own
     and names one.
     """
     community_id = requested or community_id_of(user)
@@ -357,14 +357,14 @@ async def delete_attachment(
 
     community_id = att.get("community_id")
     if att["scope"] == "system" and not (
-        is_admin(user) or (community_id and can_manage(user, community_id))
+        is_platform_admin(user) or (community_id and can_manage(user, community_id))
     ):
         raise HTTPException(status_code=403, detail="Admin only")
 
     if (
         att["scope"] == "user"
         and (att.get("owner_user_id") != user.user_id)
-        and not is_admin(user)
+        and not is_platform_admin(user)
     ):
         raise HTTPException(status_code=403, detail="Forbidden")
 

@@ -25,7 +25,7 @@ sanitiser reduces the name to a basename and drops anything outside
 honoured, `@` and `.` are kept because an id is usually an email, and an id that reduces
 to nothing usable is refused rather than coerced.
 
-### REQ-0016 — a user-scoped attachment is reachable only by its owner or a realm administrator
+### REQ-0016 — a user-scoped attachment is reachable only by its owner or a platform administrator
 
 Reading it, downloading it, deleting it and attaching it to a chat turn all enforce this.
 The tool the model calls answers "not found" rather than "forbidden", because the model
@@ -35,9 +35,9 @@ relays tool output to the user.
 
 That is what the scope is for: a manager shared it with their REC (REQ-0005). A member of
 another community, or a caller with none, is refused — by the tool the model calls, as
-"not found". A realm administrator reads any.
+"not found". A platform administrator (REQ-0004) reads any.
 
-### REQ-0018 — a system-scoped attachment is deletable only by a manager of its community or a realm administrator
+### REQ-0018 — a system-scoped attachment is deletable only by a manager of its community or a platform administrator
 
 ### REQ-0019 — a listing returns the caller's own attachments and their community's system ones
 

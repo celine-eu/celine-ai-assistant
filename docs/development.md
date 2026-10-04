@@ -55,6 +55,15 @@ task alembic:reset                       # downgrade to base
 uv run pytest -q
 ```
 
+`tests/integration/` is skipped unless `KEYCLOAK_IT_ISSUER` names a **local** Keycloak
+realm. It then takes real access tokens from it and checks, through real verification,
+who is a platform administrator (REQ-0004). Its module docstring lists the users and
+variables it expects.
+
+```bash
+KEYCLOAK_IT_ISSUER=http://keycloak.celine.localhost/realms/celine uv run pytest tests/integration
+```
+
 ## Project Layout
 
 ```

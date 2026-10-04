@@ -36,7 +36,6 @@ os.environ["QDRANT_URL"] = "http://127.0.0.1:1"
 os.environ["OAUTH2_TRUST_HEADERS"] = "true"
 os.environ["OAUTH2_JWKS_URL"] = ""
 os.environ["OAUTH2_ISSUER"] = ""
-os.environ["ADMIN_GROUP"] = "admins"
 for _removed in ("TRAINING_MATERIALS_REPO_URL", "TRAINING_MATERIALS_PATH", "INGEST_ENABLE"):
     os.environ.pop(_removed, None)
 os.environ["KB_SYNC_ON_START"] = "false"
@@ -421,12 +420,16 @@ def other_user_headers() -> dict[str, str]:
     }
 
 
+PLATFORM_ADMIN = "platform-admin"
+
+
 @pytest.fixture
-def admin_headers() -> dict[str, str]:
-    return {
-        "x-auth-request-user": ADMIN_ID,
-        "x-auth-request-groups": f"members,{settings.admin_group}",
-    }
+def admin_headers(tokens) -> dict[str, str]:
+    """A platform administrator: the `platform-admin` realm role in a verified token.
+
+    A header identity can no longer be one (REQ-0003), so this is a token.
+    """
+    return tokens.issue(ADMIN_ID, groups=(), roles=(PLATFORM_ADMIN,))
 
 
 VALID_TOKEN = "a-token-that-verifies"
@@ -455,6 +458,7 @@ class TokenIssuer:
         user_id: str,
         *,
         groups: tuple[str, ...] = ("members",),
+        roles: tuple[str, ...] = (),
         community: str | None = None,
         org_groups: tuple[str, ...] = (),
         organizations: dict[str, Any] | None = None,
@@ -464,8 +468,12 @@ class TokenIssuer:
             "sub": user_id,
             "email": f"{user_id}@example.test",
             "name": user_id,
-            "groups": list(groups),
         }
+        if groups:
+            # The top-level `groups` claim: realm groups, which grant nothing.
+            claims["groups"] = list(groups)
+        if roles:
+            claims["realm_access"] = {"roles": list(roles)}
         if organizations is None and community:
             organizations = {
                 community: {"type": ["rec"], "groups": [f"/{g}" for g in org_groups]}

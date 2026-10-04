@@ -78,21 +78,24 @@ Delete a conversation and all its messages.
 ### `GET /user`
 
 Return the authenticated user's profile derived from the JWT: `community_id` (the REC
-organization in the token, or `null`), `is_realm_admin`, and `is_admin` — true for a
-realm administrator and for a manager of the caller's own community.
+organization in the token, or `null`), `roles` (the caller's realm roles, from
+`realm_access.roles`), `is_platform_admin` (holds the `platform-admin` realm role), and
+`is_admin` — true for a platform administrator and for a manager of the caller's own
+community. An identity from trusted headers has no roles.
 
 ---
 
 ## Admin
 
-These act on one community's knowledge base. The caller must be a realm administrator
-(`ADMIN_GROUP` in the top-level `groups` claim) or hold one of `REC_MANAGER_GROUPS` inside
-that REC's organization. A manager acts on their own community; a realm administrator
+These act on one community's knowledge base. The caller must be a platform administrator
+(the `platform-admin` realm role in a verified token's `realm_access.roles`) or hold one of
+`REC_MANAGER_GROUPS` inside that REC's organization. A realm group (top-level `groups`
+claim) grants nothing. A manager acts on their own community; a platform administrator
 names one with `community_id` (`400` without). Anyone else gets `403`.
 
 ### `POST /admin/uploads`
 
-Multipart: `file`, and optionally `community_id` (a realm administrator's). Shares a file
+Multipart: `file`, and optionally `community_id` (a platform administrator's). Shares a file
 with the community as a system-scoped attachment, readable by its members.
 
 ### `POST /admin/kb/sync`
