@@ -301,6 +301,11 @@ def _verify_jwt(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
     audience = settings.oauth2_audience
     # Algorithms are pinned by configuration, never taken from the token header: a
     # caller must not be able to choose the algorithm their token is verified against.
+    #
+    # A configured audience must also be present: python-jose compares `aud` only when
+    # the token carries one, so a token with no `aud` at all (a service account's
+    # client-credentials token, say) passed the audience check. A token without `exp`
+    # would likewise never expire.
     return jwt.decode(
         token,
         jwk,
@@ -311,6 +316,9 @@ def _verify_jwt(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
             "verify_signature": True,
             "verify_aud": audience is not None,
             "verify_iss": issuer is not None,
+            "require_aud": audience is not None,
+            "require_iss": issuer is not None,
+            "require_exp": True,
         },
     )
 

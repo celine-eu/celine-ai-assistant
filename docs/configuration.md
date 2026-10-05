@@ -61,7 +61,7 @@ collection until they are uploaded again.
 | `OAUTH2_JWKS_URL` | `str?` | — | JWKS endpoint for JWT verification. Falls back to `CELINE_OIDC_JWKS_URI`. If unset, `OAUTH2_ISSUER` must be set |
 | `OAUTH2_ISSUER` | `str?` | — | Expected token issuer; the JWKS is discovered from it. A token whose `iss` differs is refused. Required outside `CELINE_ENV=dev`: with `OAUTH2_JWKS_URL` alone `iss` is not checked |
 | `OAUTH2_ALGORITHMS` | `list[str]` | `["RS256"]` | Accepted signature algorithms. Pinned, not read from the token header |
-| `OAUTH2_AUDIENCE` | `str?` | `oauth2_proxy` | Expected JWT audience |
+| `OAUTH2_AUDIENCE` | `str?` | `oauth2_proxy` | Required JWT audience: a token without this value in `aud` (or with no `aud`) is refused |
 | `OAUTH2_JWT_COOKIE_NAME` | `str?` | — | Optional JWT cookie name |
 | `REC_ORGANIZATION_TYPE` | `str` | `rec` | Organization type marking a REC in the token's `organization` claim; its alias is the caller's community |
 | `REC_MANAGER_GROUPS` | `list[str]` | `["managers", "admins"]` | Groups inside a REC's own organization that may share documents with it and sync its sources |

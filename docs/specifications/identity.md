@@ -29,7 +29,10 @@ Verification is bound to a **configured** trust anchor. The key set comes from
 the OIDC discovery of `OAUTH2_ISSUER`; with neither set the token is refused rather than
 verified against the issuer it names for itself. When `OAUTH2_ISSUER` is set, a token
 whose `iss` differs is refused. The signature algorithm is taken from
-`OAUTH2_ALGORITHMS` (default `RS256`), never from the token header.
+`OAUTH2_ALGORITHMS` (default `RS256`), never from the token header. When
+`OAUTH2_AUDIENCE` is set, the token must carry an `aud` that includes it: a token with
+no `aud` at all is refused, not accepted for lack of anything to compare. A token must
+carry `exp`, and `iss` when `OAUTH2_ISSUER` is set.
 
 ### REQ-0003 — trusted headers are an accepted identity
 

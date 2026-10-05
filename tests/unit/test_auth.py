@@ -601,3 +601,66 @@ def test_a_token_signed_hs256_is_refused_against_the_rsa_key_set(_configured):
         forged = _jose_jwt.encode(body, "anything", algorithm="HS256", headers={"kid": "k1"})
     with _pytest.raises(Exception):
         _verify_jwt(forged, _jwks_of(key, "k1"))
+
+
+# A configured audience or issuer must be present in the token, not merely match when
+# present: python-jose skips the `aud`/`iss` comparison for a token without the claim.
+# Keycloak issues such tokens — a service account with no audience mapper gets a
+# client-credentials token with no `aud` — so these sign real RS256 tokens without them.
+
+
+def _token_without(key, kid: str, *missing: str) -> str:
+    pem = key.private_bytes(
+        _serialization.Encoding.PEM, _serialization.PrivateFormat.PKCS8, _serialization.NoEncryption()
+    )
+    body = {"iss": _ISSUER, "aud": "oauth2_proxy", "sub": "user-1", "exp": int(_time.time()) + 300}
+    for claim in missing:
+        body.pop(claim)
+    return _jose_jwt.encode(body, pem, algorithm="RS256", headers={"kid": kid})
+
+
+def test_a_token_without_an_audience_is_refused(_configured):
+    """@verifies REQ-0002"""
+    key = _rsa_key()
+    with _pytest.raises(Exception):
+        _verify_jwt(_token_without(key, "k1", "aud"), _jwks_of(key, "k1"))
+
+
+def test_a_token_without_an_issuer_is_refused(_configured):
+    """@verifies REQ-0002"""
+    key = _rsa_key()
+    with _pytest.raises(Exception):
+        _verify_jwt(_token_without(key, "k1", "iss"), _jwks_of(key, "k1"))
+
+
+def test_a_token_without_an_expiry_is_refused(_configured):
+    """A token with no `exp` would never expire. @verifies REQ-0002"""
+    key = _rsa_key()
+    with _pytest.raises(Exception):
+        _verify_jwt(_token_without(key, "k1", "exp"), _jwks_of(key, "k1"))
+
+
+def test_an_unsigned_token_is_refused(_configured):
+    """`alg: none`, the realm's own `kid`, otherwise valid claims. @verifies REQ-0002"""
+    key = _rsa_key()
+    signed = _token_of(key, "k1")
+    header = _base64.urlsafe_b64encode(b'{"alg":"none","typ":"JWT","kid":"k1"}').rstrip(b"=").decode()
+    unsigned = f"{header}.{signed.split('.')[1]}."
+    with _pytest.raises(Exception):
+        _verify_jwt(unsigned, _jwks_of(key, "k1"))
+
+
+async def test_a_service_token_without_an_audience_gets_no_identity(_configured, monkeypatch):
+    """Through the request path: a correctly signed token from the right issuer but with
+    no `aud` is a 401, not an identity. @verifies REQ-0002"""
+    key = _rsa_key()
+    monkeypatch.setattr(settings, "oauth2_jwks_url", "https://issuer.test/jwks")
+
+    async def _jwks(_url):
+        return _jwks_of(key, "k1")
+
+    monkeypatch.setattr(_auth, "_get_jwks", _jwks)
+    request = make_request({"authorization": f"Bearer {_token_without(key, 'k1', 'aud')}"})
+    with _pytest.raises(HTTPException) as exc:
+        await get_user_identity(request)
+    assert exc.value.status_code == 401
