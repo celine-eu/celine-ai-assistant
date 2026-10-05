@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import logging
 
+from celine.sdk.posture import docs_urls
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,7 +13,7 @@ from .history import HistoryStore
 from .kb_store import KbStore
 from .llm import configuration_problems
 from .logging_ import configure_logging
-from .posture import enforce_posture, is_dev
+from .posture import current_env, enforce_posture, is_dev
 from .routes import router
 from .settings import settings
 
@@ -102,6 +103,9 @@ def create_app():
         title="CELINE Chatbot API",
         version="0.2.0",
         lifespan=lifespan,
+        # Same signal as the CORS below: outside dev /docs, /redoc and /openapi.json
+        # are not mounted unless CELINE_PUBLIC_DOCS=true.
+        **docs_urls(env=current_env()),
     )
 
     # Wildcard origins (with credentials) only in dev. This used to be every

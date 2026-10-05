@@ -46,4 +46,6 @@ interactive API docs are HTML that loads scripts, so they get no policy here.
 ### REQ-0046 — wildcard CORS is served in dev only
 
 `Access-Control-Allow-Origin: *` (with credentials) is configured only when the signal of
-REQ-0045 is `dev`. Anywhere else no cross-origin caller is allowed.
+REQ-0045 is `dev`. Anywhere else no cross-origin caller is allowed. On the same signal,
+`/docs`, `/redoc` and `/openapi.json` are not mounted outside dev (`404`) unless
+`CELINE_PUBLIC_DOCS=true`.
