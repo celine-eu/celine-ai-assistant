@@ -22,11 +22,9 @@ dependencies = [
   "fsspec>=2024.6.0",
   "s3fs>=2024.6.0",
   "python-multipart>=0.0.27",
-  # TODO: `celine.sdk.posture` (the CELINE_ENV startup guard, posture.py) and the
-  # two-level authority helpers (`celine.sdk.auth.is_platform_admin`, `realm_roles`,
-  # auth.py) are unreleased. Raise this floor to the first celine-sdk release that
-  # ships both (2.0.0); until then the local SDK checkout must be installed editable.
-  # TODO: that release must also ship `celine.sdk.posture.docs_urls` (main.py).
+  # 2.0.0 is the first release with `celine.sdk.posture` (the CELINE_ENV startup
+  # guard, posture.py; `docs_urls`, main.py) and the two-level authority helpers
+  # (`celine.sdk.auth.is_platform_admin`, `realm_roles`, auth.py).
   "celine-sdk>=2.0.0",
   "alembic>=1.18.4",
   "sqlalchemy[asyncio]>=2.0.46",

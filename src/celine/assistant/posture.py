@@ -9,10 +9,6 @@ compared with `!=`, so `production` or `staging` silently got wildcard CORS.
 
 At startup `enforce_posture` refuses, outside dev, every value that is safe only
 on a developer's machine; in dev it logs them as one warning.
-
-TODO: `celine.sdk.posture` is not in a released celine-sdk yet. Raise the
-`celine-sdk` floor in pyproject.toml to the first release that ships it; until
-then this needs the local SDK checkout installed editable.
 """
 
 from __future__ import annotations

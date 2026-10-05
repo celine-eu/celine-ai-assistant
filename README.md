@@ -34,9 +34,7 @@ startup anywhere else. **Unset is hardened.** The signal is `CELINE_ENV`, then
 `ENVIRONMENT`, then the legacy `APP_ENV` (still accepted as a fallback name);
 `CELINE_ENV=staging task run` is the prod-like mode of the same entry point.
 
-The check comes from `celine.sdk.posture`, which is not in a released celine-sdk yet:
-until it is, install the SDK checkout editable
-(`uv pip install --python .venv/bin/python -e ../celine-sdk`).
+The check comes from `celine.sdk.posture`, first released in celine-sdk 2.0.0.
 
 ## Configuration
 
