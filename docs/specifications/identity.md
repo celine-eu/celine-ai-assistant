@@ -44,6 +44,24 @@ off by default**: unless a deployment opts in,
 headers alone are not an identity and a request carrying no verifiable token is answered
 `401`. Outside dev a deployment cannot opt in: startup refuses the switch (REQ-0045).
 
+### REQ-0047 — the caller is the verified token's `sub`
+
+Everything the service stores for a person — conversations, messages, attachments and
+their indexed documents — is keyed by the `sub` claim of the verified token, so a
+request to erase or export a person's data, which names them by `sub`, finds all of it.
+**A verified token without `sub` has no identity** and is answered `401`. Nothing else
+stands in: not `sid`, which is the login session and changes at every login, not a
+username or an email, and not a shared placeholder id.
+
+Rows written before 2026-10-05 are keyed by the `sid` of the session that wrote them.
+They cannot be mapped to a `sub` (a session id names no person once the session has
+ended), and they were unreachable to their owner from the next login on. They are not
+migrated; an operator removes them by creation time (`created_at` before the release that
+carries this requirement) together with their stored files and indexed documents.
+
+A trusted-header identity (REQ-0003, refused outside dev) is the header's value as
+given; it is not a `sub` unless the proxy in front sends one.
+
 ### REQ-0004 — a platform administrator holds the `platform-admin` realm role
 
 There are exactly two levels of authority, and they are never merged:

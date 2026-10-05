@@ -92,3 +92,31 @@ async def test_a_member_is_reported_with_their_community(client, member_headers)
 
     assert body["community_id"] == "example-rec"
     assert body["is_admin"] is False
+
+
+@pytest.mark.parametrize(
+    ("path", "status"), [("/health", 200), ("/ping", 401), ("/nowhere", 404)]
+)
+async def test_every_response_carries_the_security_headers(client, path, status):
+    """@verifies REQ-0050"""
+    r = await client.get(path)
+
+    assert r.status_code == status
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["referrer-policy"] == "no-referrer"
+    assert r.headers["content-security-policy"] == (
+        "default-src 'none'; frame-ancestors 'none'"
+    )
+
+
+async def test_the_api_docs_page_keeps_its_scripts(client):
+    """The interactive docs are HTML that loads scripts; the API policy would blank it.
+
+    @verifies REQ-0050
+    """
+    r = await client.get("/docs")
+
+    assert r.status_code == 200
+    assert "content-security-policy" not in r.headers
+    assert r.headers["x-content-type-options"] == "nosniff"

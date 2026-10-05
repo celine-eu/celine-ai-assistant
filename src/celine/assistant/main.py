@@ -54,6 +54,49 @@ async def lifespan(app: FastAPI):
         log.info("app stopped")
 
 
+# Set on every response unless the route set its own (`/attachments/{id}/raw` does).
+# JSON and event streams need no content policy beyond "nothing"; the interactive API
+# docs (HTML) load their own scripts and are left without one.
+_SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
+    (b"x-content-type-options", b"nosniff"),
+    (b"x-frame-options", b"DENY"),
+    (b"referrer-policy", b"no-referrer"),
+)
+_API_CSP = b"default-src 'none'; frame-ancestors 'none'"
+
+
+class SecurityHeadersMiddleware:
+    """Adds `_SECURITY_HEADERS`, and `_API_CSP` to any non-HTML response."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {k.lower() for k, _ in headers}
+                for name, value in _SECURITY_HEADERS:
+                    if name not in present:
+                        headers.append((name, value))
+                content_type = next(
+                    (v for k, v in headers if k.lower() == b"content-type"), b""
+                )
+                if (
+                    b"content-security-policy" not in present
+                    and not content_type.startswith(b"text/html")
+                ):
+                    headers.append((b"content-security-policy", _API_CSP))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, _send)
+
+
 def create_app():
     app = FastAPI(
         title="CELINE Chatbot API",
@@ -80,6 +123,9 @@ def create_app():
         except Exception:
             log.exception("unhandled_error")
             return json_error(500, "Internal Server Error")
+
+    # Last added is outermost: error responses get the headers too.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(router)
 

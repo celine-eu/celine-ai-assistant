@@ -25,6 +25,37 @@ sanitiser reduces the name to a basename and drops anything outside
 honoured, `@` and `.` are kept because an id is usually an email, and an id that reduces
 to nothing usable is refused rather than coerced.
 
+### REQ-0048 — an upload is one of a fixed list of types, decided from its bytes
+
+The type is decided by the file's own content, never by what the client declared, and
+the decided type is what is stored and served:
+
+| Type | Recognised by |
+|---|---|
+| PDF | `%PDF` magic |
+| PNG, JPEG, GIF, WebP images | their magic bytes |
+| Word, Excel, PowerPoint (`.docx`, `.xlsx`, `.pptx`) | a zip holding `[Content_Types].xml` and that format's parts, under its extension |
+| plain text, Markdown, CSV (`.txt`, `.md`, `.csv`) | UTF-8 with no NUL byte, under its extension |
+
+Anything else — HTML, SVG, XML, scripts, archives, executables, a name whose bytes are
+something else — is answered `415` before it is stored or indexed. The list is the
+same for `POST /upload` and `POST /admin/uploads`.
+
+### REQ-0049 — a stored file is served so that no browser runs it
+
+`GET /attachments/{id}/raw` serves the stored type when it is on the REQ-0048 list and
+`application/octet-stream` otherwise (rows written before the list existed carry the
+type the client declared). Every response carries `X-Content-Type-Options: nosniff` and
+`Cache-Control: private, no-store`.
+
+- **An image or a PDF is `inline`**; everything else is `Content-Disposition: attachment`.
+- **The content policy is `default-src 'none'` with `sandbox`**, so a file opened
+  directly runs no script and has no access to this origin. A PDF has
+  `default-src 'none'; object-src 'self'` without `sandbox`, because browsers' built-in
+  PDF viewers do not render under it; its type is still only ever a real PDF (REQ-0048).
+- The file name is given ASCII-only in `filename`, with the full sanitised name
+  (REQ-0015) in `filename*` (RFC 6266) when they differ.
+
 ### REQ-0016 — a user-scoped attachment is reachable only by its owner or a platform administrator
 
 Reading it, downloading it, deleting it and attaching it to a chat turn all enforce this.
@@ -50,8 +81,7 @@ client holding a stale id does not lose the turn.
 
 Images are captioned by the vision model; PDFs are text-extracted and fall back to
 rendering pages for the vision model; everything else goes through MarkItDown. The type
-is decided by the file's own magic bytes, and only falls back to what the client
-declared. Extraction that yields text is indexed and reported as `indexed`; extraction
+is the one decided at upload (REQ-0048). Extraction that yields text is indexed and reported as `indexed`; extraction
 that yields nothing, or fails, leaves the file stored and reported as `stored`.
 
 An upload is recorded with the caller's community (REQ-0040) and indexed into that

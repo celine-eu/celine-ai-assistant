@@ -35,6 +35,14 @@ offending setting in one message — while any of these is in force:
 
 In dev the same list is logged as one warning and startup proceeds.
 
+### REQ-0050 — every response carries the security headers
+
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and
+`Referrer-Policy: no-referrer` on every response, errors included; and, on every
+response that is not HTML, `Content-Security-Policy: default-src 'none';
+frame-ancestors 'none'`. A route that sets its own policy keeps it (REQ-0049). The
+interactive API docs are HTML that loads scripts, so they get no policy here.
+
 ### REQ-0046 — wildcard CORS is served in dev only
 
 `Access-Control-Allow-Origin: *` (with credentials) is configured only when the signal of

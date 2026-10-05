@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from typing import AsyncGenerator
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -35,7 +36,16 @@ from .rag import (
 )
 from .history import HistoryStore, get_history_store
 from .openai_stream import stream_chat
-from .uploads import StoredFile, store_upload, open_upload_stream, delete_upload
+from .uploads import (
+    INLINE_TYPES,
+    StoredFile,
+    UnsupportedUpload,
+    classify_upload,
+    delete_upload,
+    open_upload_stream,
+    served_type,
+    store_upload,
+)
 from .settings import settings
 from .skills.factory import build_skill_registry
 from .suggestions import get_suggestions, get_tool_labels
@@ -172,6 +182,13 @@ async def _read_upload_or_413(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
+def _classify_or_415(data: bytes, filename: str) -> str:
+    try:
+        return classify_upload(data, filename)
+    except UnsupportedUpload as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+
+
 async def _process_upload(
     history_store: HistoryStore,
     data: bytes,
@@ -235,12 +252,13 @@ async def upload_user(
 ):
     community_id = community_id_of(user)
     data = await _read_upload_or_413(file)
+    content_type = _classify_or_415(data, file.filename or "upload")
 
     stored = await store_upload(
         scope="user",
         owner_user_id=user.user_id,
         filename=file.filename or "upload",
-        content_type=file.content_type,
+        content_type=content_type,
         data=data,
     )
 
@@ -263,12 +281,13 @@ async def upload_system(
 ):
     target = _managed_community(user, community_id)
     data = await _read_upload_or_413(file)
+    content_type = _classify_or_415(data, file.filename or "upload")
 
     stored = await store_upload(
         scope="system",
         owner_user_id=None,
         filename=file.filename or "upload",
-        content_type=file.content_type,
+        content_type=content_type,
         data=data,
     )
 
@@ -335,14 +354,39 @@ async def get_attachment_raw(
 ):
     att = await _get_attachment_authorized(history_store, user, attachment_id)
 
-    ct = att.get("content_type") or "application/octet-stream"
-    headers = {"Content-Disposition": f'inline; filename="{att.get("filename")}"'}
-
     return StreamingResponse(
         open_upload_stream(att["path"]),
-        media_type=ct,
-        headers=headers,
+        media_type=served_type(att.get("content_type")),
+        headers=_raw_headers(att),
     )
+
+
+# A served file is a document of this origin when opened directly, so it gets no
+# script, no subresource and no same-origin access. A PDF is the exception to the
+# sandbox only: browsers' built-in PDF viewers do not render under `sandbox`.
+_RAW_CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
+_RAW_CSP_PDF = "default-src 'none'; object-src 'self'; frame-ancestors 'self'"
+
+
+def _raw_headers(att: dict) -> dict[str, str]:
+    """Headers for a stored file: only an allow-listed image or a PDF is inline."""
+    mime = served_type(att.get("content_type"))
+    disposition = "inline" if mime in INLINE_TYPES else "attachment"
+    # The stored name is already sanitised (REQ-0015), but may hold non-ASCII letters,
+    # which a header cannot carry raw: an ASCII fallback plus the RFC 6266 `filename*`.
+    name = str(att.get("filename") or "file")
+    ascii_name = "".join(
+        ch for ch in name if ch.isascii() and (ch.isalnum() or ch in "_-.+")
+    ) or "file"
+    disposition = f'{disposition}; filename="{ascii_name}"'
+    if ascii_name != name:
+        disposition += f"; filename*=UTF-8''{quote(name, safe='')}"
+    return {
+        "Content-Disposition": disposition,
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": _RAW_CSP_PDF if mime == "application/pdf" else _RAW_CSP,
+        "Cache-Control": "private, no-store",
+    }
 
 
 @router.delete("/attachments/{attachment_id}")

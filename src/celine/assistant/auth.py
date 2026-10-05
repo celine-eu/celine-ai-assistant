@@ -239,11 +239,17 @@ def _select_jwk(jwks: dict[str, Any], kid: str) -> dict[str, Any]:
     raise AuthError("No matching JWK for kid")
 
 
-def _best_effort_user_from_claims(claims: dict[str, Any]) -> str | None:
-    for k in ("sid", "sub", "preferred_username", "name", "email", "user", "uid"):
-        v = claims.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
+def _user_id_from_claims(claims: dict[str, Any]) -> str | None:
+    """The caller's stable id: the verified token's `sub`, and nothing else.
+
+    Every stored row (conversations, messages, attachments, indexed documents) is keyed
+    by it, and erasure or export of a person's data is asked for by `sub`. `sid` is the
+    login session and changes on every login; a name or an email is neither unique nor
+    stable. A token without `sub` names nobody, so it has no identity.
+    """
+    v = claims.get("sub")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
     return None
 
 
@@ -366,7 +372,10 @@ async def get_user_identity(request: Request) -> UserIdentity:
                 status_code=401, detail=f"JWT verification failed: {e}"
             ) from e
 
-        user_id = _best_effort_user_from_claims(claims) or "unknown"
+        user_id = _user_id_from_claims(claims)
+        if not user_id:
+            log.warning("jwt_without_subject")
+            raise HTTPException(status_code=401, detail="JWT has no sub claim")
         return UserIdentity(
             user_id=user_id, raw={"source": "jwt-verified", "claims": claims}
         )

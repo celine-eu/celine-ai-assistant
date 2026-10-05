@@ -161,3 +161,45 @@ async def test_deleting_someone_else_s_conversation_is_reported_as_not_found(
     assert (
         await client.get("/conversations/theirs/messages", headers=other_user_headers)
     ).status_code == 200
+
+
+# --- whose data it is: the `sub` claim ----------------------------------------
+
+
+def _session_token(tokens, token: str, *, sub: str | None, sid: str) -> dict[str, str]:
+    """A verified token as Keycloak issues one: `sub` is the person, `sid` the login."""
+    claims = {"sid": sid, "preferred_username": "alice", "email": "alice@example.test"}
+    if sub is not None:
+        claims["sub"] = sub
+    tokens.claims[token] = claims
+    return {"x-auth-request-access-token": token}
+
+
+async def test_the_caller_is_their_sub_not_their_login_session(client, history, tokens):
+    """Rows are keyed by `sub`, so erasure and export by `sub` find them, and a second
+    login (a new `sid`) still sees the first login's conversations.
+
+    @verifies REQ-0047
+    """
+    first = _session_token(tokens, "login-1", sub=USER_ID, sid="session-1")
+    second = _session_token(tokens, "login-2", sub=USER_ID, sid="session-2")
+    await seed(history, USER_ID, "mine", "hello")
+
+    assert (await client.get("/user", headers=first)).json()["user_id"] == USER_ID
+    body = (await client.get("/conversations", headers=second)).json()
+    assert [c["conversation_id"] for c in body["items"]] == ["mine"]
+
+
+async def test_a_verified_token_without_sub_has_no_identity(client, history, tokens):
+    """It used to fall back to `sid`, a name or an email — and finally to the shared
+    id `unknown`, one bucket for every such caller.
+
+    @verifies REQ-0047
+    """
+    headers = _session_token(tokens, "no-sub", sub=None, sid="session-1")
+    await seed(history, "unknown", "anyone", "hello")
+    await seed(history, "session-1", "session", "hello")
+
+    for path in ("/user", "/conversations", "/attachments"):
+        r = await client.get(path, headers=headers)
+        assert r.status_code == 401, path

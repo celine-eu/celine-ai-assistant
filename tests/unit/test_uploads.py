@@ -176,3 +176,108 @@ def test_a_bare_path_uploads_uri_is_treated_as_a_local_directory(monkeypatch, tm
     fs, root = _fs_and_root()
     assert root == str(tmp_path)
     assert fs.protocol in ("file", ("file", "local"))
+
+
+# --- what an upload may be ----------------------------------------------------
+
+import io as _io
+import zipfile as _zipfile
+
+from celine.assistant.uploads import (
+    ALLOWED_TYPES,
+    INLINE_TYPES,
+    UnsupportedUpload,
+    classify_upload,
+    served_type,
+)
+
+
+def _zip(*parts: str) -> bytes:
+    buf = _io.BytesIO()
+    with _zipfile.ZipFile(buf, "w") as zf:
+        for part in parts:
+            zf.writestr(part, "<x/>")
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("data", "name", "expected"),
+    [
+        (b"%PDF-1.7\n...", "bill.pdf", "application/pdf"),
+        (b"%PDF-1.7\n...", "bill.txt", "application/pdf"),
+        (b"\x89PNG\r\n\x1a\n....", "meter.png", "image/png"),
+        (b"\xff\xd8\xff\xe0....", "meter", "image/jpeg"),
+        (b"GIF89a....", "a.gif", "image/gif"),
+        (b"RIFF\x00\x00\x00\x00WEBPVP8 ", "a.webp", "image/webp"),
+        (
+            _zip("[Content_Types].xml", "word/document.xml"),
+            "Letter.DOCX",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        (
+            _zip("[Content_Types].xml", "xl/workbook.xml"),
+            "sheet.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+        ("Grüße, 42 kWh".encode(), "notes.txt", "text/plain"),
+        (b"# Title", "readme.md", "text/markdown"),
+        (b"a,b\n1,2\n", "data.csv", "text/csv"),
+    ],
+)
+def test_an_upload_is_typed_by_its_bytes(data, name, expected):
+    """@verifies REQ-0048"""
+    assert classify_upload(data, name) == expected
+    assert expected in ALLOWED_TYPES
+
+
+@pytest.mark.parametrize(
+    ("data", "name"),
+    [
+        (b"<html><script>alert(1)</script></html>", "page.html"),
+        (b"<svg xmlns='http://www.w3.org/2000/svg'/>", "image.svg"),
+        (b"not really an image", "photo.jpeg"),
+        (b"MZ\x90\x00", "tool.exe"),
+        (b"PK\x03\x04", "archive.zip"),
+        (_zip("anything.txt"), "fake.docx"),
+        (_zip("[Content_Types].xml", "xl/workbook.xml"), "wrong.docx"),
+        (b"PK\x03\x04 truncated", "broken.docx"),
+        (b"text\x00with a NUL", "binary.txt"),
+        (b"\xe0 la carte", "latin1.txt"),
+    ],
+)
+def test_anything_else_is_refused(data, name):
+    """@verifies REQ-0048"""
+    with pytest.raises(UnsupportedUpload):
+        classify_upload(data, name)
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ("application/pdf", "application/pdf"),
+        ("image/png", "image/png"),
+        ("IMAGE/PNG; charset=binary", "image/png"),
+        ("text/plain", "text/plain"),
+        ("text/html", "application/octet-stream"),
+        ("image/svg+xml", "application/octet-stream"),
+        ("application/xhtml+xml", "application/octet-stream"),
+        (None, "application/octet-stream"),
+    ],
+)
+def test_a_stored_type_outside_the_allow_list_is_served_as_bytes(stored, expected):
+    """Rows written before uploads were typed carry what the client declared.
+
+    @verifies REQ-0049
+    """
+    assert served_type(stored) == expected
+
+
+def test_only_images_and_pdf_are_inline():
+    """@verifies REQ-0049"""
+    assert INLINE_TYPES == {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+    }

@@ -81,6 +81,6 @@ POST /chat -> verify JWT -> load history -> load authorized attachments -> retri
 
 PostgreSQL (async via SQLAlchemy + asyncpg). Alembic handles migrations. Models:
 
-- `Conversation` — linked to a user identity from the JWT subject claim
+- `Conversation` — linked to a user identity, the verified token's `sub` claim (REQ-0047)
 - `Message` — role (`user`/`assistant`), content, timestamp, optional attachment refs
 - `Attachment` — file metadata: name, MIME type, Qdrant collection reference, scope (user/system)

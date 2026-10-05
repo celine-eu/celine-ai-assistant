@@ -8,6 +8,7 @@ vector store afterwards.
 from __future__ import annotations
 
 import io
+import zipfile
 
 import pytest
 from PIL import Image
@@ -57,6 +58,16 @@ def upload_env(tmp_path, monkeypatch):
 def png(width: int = 8) -> bytes:
     buf = io.BytesIO()
     Image.new("RGB", (width, width), "red").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def docx(parts: tuple[str, ...] = ("word/document.xml",)) -> bytes:
+    """An OOXML container: the parts a Word document is recognised by, and no content."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("[Content_Types].xml", "<Types/>")
+        for part in parts:
+            zf.writestr(part, "<x/>")
     return buf.getvalue()
 
 
@@ -115,12 +126,19 @@ async def test_the_sniffed_type_beats_the_declared_one(
     assert upload_env["extracted"] == []
 
 
-# @verifies REQ-0021
-async def test_an_extension_alone_is_enough_to_treat_a_file_as_an_image(
-    client, member_headers, upload_env
+async def test_an_extension_alone_does_not_make_a_file_an_image(
+    client, history, member_headers, upload_env
 ):
-    await upload(client, member_headers, "photo.jpeg", b"not really an image", None)
-    assert upload_env["described"] == [None]
+    """It used to: a `.jpeg` name sent anything down the image path, and the declared
+    type was stored and served as given.
+
+    @verifies REQ-0048
+    """
+    r = await upload(client, member_headers, "photo.jpeg", b"not really an image", "image/jpeg")
+
+    assert r.status_code == 415
+    assert upload_env["described"] == []
+    assert history.attachments == {}
 
 
 async def test_a_file_nothing_can_read_is_stored_not_indexed(
@@ -137,7 +155,7 @@ async def test_a_file_nothing_can_read_is_stored_not_indexed(
     """
     upload_env["extract_raises"] = True
 
-    r = await upload(client, member_headers, "archive.zip", b"PK\x03\x04", "application/zip")
+    r = await upload(client, member_headers, "notes.docx", docx(), None)
 
     assert r.status_code == 200
     assert r.json()["status"] == "stored"
@@ -151,7 +169,7 @@ async def test_an_empty_extraction_is_stored_not_indexed(
 ):
     upload_env["extract_returns"] = ""
 
-    r = await upload(client, member_headers, "blank.docx", b"PK\x03\x04", None)
+    r = await upload(client, member_headers, "blank.docx", docx(), None)
 
     assert r.json()["status"] == "stored"
     assert upload_env["indexed"] == []
@@ -227,7 +245,7 @@ async def test_the_limit_never_drops_below_one_megabyte(
     """
     monkeypatch.setattr(settings, "max_upload_mb", 0)
 
-    r = await upload(client, member_headers, "small.bin", b"x" * 1024, None)
+    r = await upload(client, member_headers, "small.txt", b"x" * 1024, None)
     assert r.status_code == 200
 
 
@@ -448,3 +466,51 @@ async def test_a_system_upload_has_no_owner(client, manager_headers, upload_env)
 
     assert "/_system/" in body["uri"]
     assert upload_env["indexed"][0]["metadata"]["owner_user_id"] is None
+
+
+# --- what an upload may be ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("name", "data", "declared"),
+    [
+        ("page.html", b"<html><script>alert(1)</script></html>", "text/html"),
+        ("image.svg", b"<svg xmlns='http://www.w3.org/2000/svg'/>", "image/svg+xml"),
+        ("tool.exe", b"MZ\x90\x00", "application/octet-stream"),
+    ],
+)
+async def test_a_type_outside_the_allow_list_is_refused_before_it_is_stored(
+    client, history, member_headers, upload_env, name, data, declared
+):
+    """@verifies REQ-0048"""
+    r = await upload(client, member_headers, name, data, declared)
+
+    assert r.status_code == 415
+    assert history.attachments == {}
+    assert upload_env["indexed"] == []
+
+
+async def test_the_stored_type_is_the_sniffed_one_not_the_declared_one(
+    client, history, member_headers, upload_env
+):
+    """@verifies REQ-0048"""
+    r = await upload(client, member_headers, "meter.png", png(), "text/html")
+
+    assert r.status_code == 200
+    assert r.json()["content_type"] == "image/png"
+    (att,) = history.attachments.values()
+    assert att["content_type"] == "image/png"
+
+
+async def test_a_system_upload_is_held_to_the_same_list(
+    client, history, manager_headers, upload_env
+):
+    """@verifies REQ-0048"""
+    r = await client.post(
+        "/admin/uploads",
+        headers=manager_headers,
+        files={"file": ("page.html", b"<html></html>", "text/html")},
+    )
+
+    assert r.status_code == 415
+    assert history.attachments == {}

@@ -222,3 +222,22 @@ async def test_a_forged_role_does_not_verify(client, real_tokens):
 
     r = await client.get("/user", headers=bearer(forged))
     assert r.status_code == 401
+
+
+async def test_the_caller_is_the_token_s_sub(client, real_tokens):
+    """Keycloak's access token carries both `sub` (the person) and `sid` (this login);
+    every row is keyed by the first.
+
+    @verifies REQ-0047
+    """
+    token = real_tokens["org_viewer"]
+    claims = _claims(token)
+    assert claims.get("sub"), "the realm must put sub in access tokens"
+
+    body = (await client.get("/user", headers=bearer(token))).json()
+    assert body["user_id"] == claims["sub"]
+    if claims.get("sid"):
+        assert body["user_id"] != claims["sid"]
+
+    again = _user_token(ORG_VIEWER_USER)
+    assert (await client.get("/user", headers=bearer(again))).json()["user_id"] == claims["sub"]

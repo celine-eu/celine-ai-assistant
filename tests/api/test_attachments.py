@@ -318,3 +318,87 @@ async def test_an_admin_id_is_not_special_cased_anywhere_but_the_group(
 
     r = await client.delete(f"/attachments/{att_id}", headers=admin_headers)
     assert r.status_code == 200
+
+
+# --- how a file is served -----------------------------------------------------
+
+
+async def test_a_pdf_is_inline_and_never_sniffed(
+    client, history, member_headers, readable_blob
+):
+    """@verifies REQ-0049"""
+    att_id = await make_attachment(history)
+
+    r = await client.get(f"/attachments/{att_id}/raw", headers=member_headers)
+
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert "default-src 'none'" in r.headers["content-security-policy"]
+    assert r.headers["cache-control"] == "private, no-store"
+
+
+async def test_an_image_is_inline_in_a_sandbox(
+    client, history, member_headers, readable_blob
+):
+    """@verifies REQ-0049"""
+    att_id = await make_attachment(
+        history, filename="meter.png", content_type="image/png"
+    )
+
+    r = await client.get(f"/attachments/{att_id}/raw", headers=member_headers)
+
+    assert r.headers["content-type"] == "image/png"
+    assert r.headers["content-disposition"] == 'inline; filename="meter.png"'
+    assert r.headers["x-content-type-options"] == "nosniff"
+    csp = r.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "sandbox" in csp
+
+
+@pytest.mark.parametrize(
+    ("stored_type", "served"),
+    [
+        # Rows written before uploads were typed: the client's declared type.
+        ("text/html", "application/octet-stream"),
+        ("image/svg+xml", "application/octet-stream"),
+        ("application/javascript", "application/octet-stream"),
+        (None, "application/octet-stream"),
+        # Allowed, but not a format a browser should render from this origin.
+        ("text/plain", "text/plain"),
+        (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ],
+)
+async def test_anything_but_an_image_or_pdf_is_a_download(
+    client, history, member_headers, readable_blob, stored_type, served
+):
+    """@verifies REQ-0049"""
+    att_id = await make_attachment(
+        history, filename="page.html", content_type=stored_type
+    )
+
+    r = await client.get(f"/attachments/{att_id}/raw", headers=member_headers)
+
+    assert r.status_code == 200
+    assert r.headers["content-type"].split(";")[0] == served
+    assert r.headers["content-disposition"] == 'attachment; filename="page.html"'
+    assert r.headers["x-content-type-options"] == "nosniff"
+    csp = r.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "sandbox" in csp
+
+
+async def test_a_non_ascii_name_is_carried_encoded(
+    client, history, member_headers, readable_blob
+):
+    """The sanitiser keeps letters of any script (REQ-0015); a raw header cannot.
+
+    @verifies REQ-0049
+    """
+    att_id = await make_attachment(history, filename="日本語.pdf")
+
+    r = await client.get(f"/attachments/{att_id}/raw", headers=member_headers)
+
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == (
+        "inline; filename=\".pdf\"; filename*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E.pdf"
+    )

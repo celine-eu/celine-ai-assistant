@@ -29,7 +29,8 @@ empty answer is not stored.
 
 ### REQ-0010 — everything about a conversation is scoped to its user
 
-Listing, reading messages and deleting are all filtered by user id. Another user's
+Listing, reading messages and deleting are all filtered by user id (the `sub`,
+REQ-0047). Another user's
 conversation is reported as **not found**, never as forbidden: a `403` would confirm the
 id exists.
 

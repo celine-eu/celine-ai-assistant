@@ -40,6 +40,9 @@ Upload a file for RAG ingestion (user scope).
 **Request:** `multipart/form-data` with `file` field.
 
 **Response:** `201` with attachment metadata including `id`, `filename`, `content_type`.
+`content_type` is decided from the file's bytes; a type outside the allowed list (PDF,
+PNG/JPEG/GIF/WebP, `.docx`/`.xlsx`/`.pptx`, `.txt`/`.md`/`.csv`) is `415`
+(REQ-0048). `POST /admin/uploads` applies the same list.
 
 Images are captioned via the vision model before chunking. All files are parsed, chunked, embedded, and upserted into Qdrant.
 
@@ -49,7 +52,9 @@ List all attachments belonging to the authenticated user.
 
 ### `GET /attachments/{id}/raw`
 
-Download the raw uploaded file.
+Download the raw uploaded file. Images and PDFs are served `inline`, everything else as
+`attachment`, always with `X-Content-Type-Options: nosniff` and a sandboxing
+`Content-Security-Policy` (REQ-0049).
 
 ### `DELETE /attachments/{id}`
 

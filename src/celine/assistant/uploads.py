@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import pathlib
 import time
 import uuid
+import zipfile
 from dataclasses import dataclass
 from typing import Iterator
 
@@ -20,6 +22,99 @@ class StoredFile:
     filename: str
     content_type: str | None
     size_bytes: int
+
+
+class UnsupportedUpload(ValueError):
+    """The file is not one of the types an upload may be (see `classify_upload`)."""
+
+
+# What an upload may be, decided from the bytes. The client's declared type is never
+# stored or served: it is whatever the client said.
+_MAGIC: tuple[tuple[bytes, int, str], ...] = (
+    (b"%PDF", 0, "application/pdf"),
+    (b"\x89PNG\r\n\x1a\n", 0, "image/png"),
+    (b"\xff\xd8\xff", 0, "image/jpeg"),
+    (b"GIF87a", 0, "image/gif"),
+    (b"GIF89a", 0, "image/gif"),
+)
+
+_OFFICE = {
+    ".docx": ("word/", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    ".xlsx": ("xl/", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ".pptx": ("ppt/", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+}
+
+_TEXT = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".csv": "text/csv",
+}
+
+# Served inline by `/attachments/{id}/raw`; every other allowed type is a download.
+INLINE_TYPES = frozenset(
+    {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"}
+)
+
+ALLOWED_TYPES = frozenset(
+    INLINE_TYPES | {mime for _, mime in _OFFICE.values()} | set(_TEXT.values())
+)
+
+
+def _office_type(data: bytes, ext: str) -> str | None:
+    if ext not in _OFFICE or data[:4] != b"PK\x03\x04":
+        return None
+    prefix, mime = _OFFICE[ext]
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            names = zf.namelist()
+    except zipfile.BadZipFile:
+        return None
+    if "[Content_Types].xml" in names and any(n.startswith(prefix) for n in names):
+        return mime
+    return None
+
+
+def _text_type(data: bytes, ext: str) -> str | None:
+    if ext not in _TEXT or b"\x00" in data:
+        return None
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return _TEXT[ext]
+
+
+def classify_upload(data: bytes, filename: str) -> str:
+    """The type an upload is stored and served as, from its own bytes.
+
+    PDFs and PNG, JPEG, GIF and WebP images by their magic bytes; Word, Excel and
+    PowerPoint (OOXML) by a zip that holds that format's parts, under its extension;
+    UTF-8 text without NUL bytes under `.txt`, `.md` or `.csv`. Anything else raises
+    `UnsupportedUpload`.
+    """
+    for magic, offset, mime in _MAGIC:
+        if data[offset : offset + len(magic)] == magic:
+            return mime
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    ext = pathlib.PurePosixPath(_sanitize(filename)).suffix.lower()
+    mime = _office_type(data, ext) or _text_type(data, ext)
+    if mime:
+        return mime
+    raise UnsupportedUpload(
+        "Unsupported file type: upload a PDF, a PNG/JPEG/GIF/WebP image, a "
+        ".docx/.xlsx/.pptx document, or .txt/.md/.csv text"
+    )
+
+
+def served_type(stored_type: str | None) -> str:
+    """The type a stored attachment is served as.
+
+    Rows written before uploads were classified carry the client's declared type; one
+    outside the allow-list is served as opaque bytes.
+    """
+    mime = (stored_type or "").split(";", 1)[0].strip().lower()
+    return mime if mime in ALLOWED_TYPES else "application/octet-stream"
 
 
 def _fs_and_root():
