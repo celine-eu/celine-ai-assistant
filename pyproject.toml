@@ -27,7 +27,7 @@ dependencies = [
   # auth.py) are unreleased. Raise this floor to the first celine-sdk release that
   # ships both (2.0.0); until then the local SDK checkout must be installed editable.
   # TODO: that release must also ship `celine.sdk.posture.docs_urls` (main.py).
-  "celine-sdk>=1.13.0",
+  "celine-sdk>=2.0.0",
   "alembic>=1.18.4",
   "sqlalchemy[asyncio]>=2.0.46",
   "asyncpg>=0.31.0",
