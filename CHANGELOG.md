@@ -2,6 +2,62 @@
 
 <!-- version list -->
 
+## v1.6.0 (2026-10-07)
+
+### Bug Fixes
+
+- Bound LLM generation with LLM_MAX_TOKENS and optional LLM_TEMPERATURE
+  ([`69767b0`](https://github.com/celine-eu/celine-ai-assistant/commit/69767b09cbd79f568eb6157ac826a68f4a0fffcb))
+
+- Disable auth forwarding
+  ([`8df7a18`](https://github.com/celine-eu/celine-ai-assistant/commit/8df7a18f268bdead977a43b50a7fa449272b5d52))
+
+- Enforce JWKS checks
+  ([`2b88325`](https://github.com/celine-eu/celine-ai-assistant/commit/2b88325df12216a94f799f775dc866dbe5a20479))
+
+- Key users by sub, sniff uploads, add security headers
+  ([`637f461`](https://github.com/celine-eu/celine-ai-assistant/commit/637f461e93288de81575535186b420f5b79c5216))
+
+- Require aud and exp claims in verified tokens
+  ([`a08c749`](https://github.com/celine-eu/celine-ai-assistant/commit/a08c7495b664f45aaa5872f133fd608cfa0d7bf3))
+
+- Serve api docs only in dev unless CELINE_PUBLIC_DOCS is set
+  ([`08f017c`](https://github.com/celine-eu/celine-ai-assistant/commit/08f017caaf6fc58d134710e6ecaadf639f4d518d))
+
+### Chores
+
+- Drop the celine-sdk release TODOs now that 2.0.0 ships them
+  ([`8ca70fb`](https://github.com/celine-eu/celine-ai-assistant/commit/8ca70fbc37f063affbc4d9a017efd67d8cd14e48))
+
+- Fix workflow
+  ([`59071e5`](https://github.com/celine-eu/celine-ai-assistant/commit/59071e5a249cef34299c0e226195079001a27780))
+
+- Ign .agents
+  ([`4bf6c05`](https://github.com/celine-eu/celine-ai-assistant/commit/4bf6c05a7378c0390c0346b367858f98be9b7d87))
+
+- Rm .agents
+  ([`aeba15d`](https://github.com/celine-eu/celine-ai-assistant/commit/aeba15d93639ea14b325ddef2c969ab465782992))
+
+- Update workfow image version
+  ([`6c7d510`](https://github.com/celine-eu/celine-ai-assistant/commit/6c7d510304d5b4b196feaffaa496d5d987466f64))
+
+- Upgrade celine-sdk to 2.0.0
+  ([`bf2a8f6`](https://github.com/celine-eu/celine-ai-assistant/commit/bf2a8f612f69287a1ca8acfef454ecaf15439e8e))
+
+### Features
+
+- Add kb import, split collections per community
+  ([`0653931`](https://github.com/celine-eu/celine-ai-assistant/commit/06539318803d75e3a90ff519dadcbdc384f44e47))
+
+- Remove defaults to OpenAI form openai compatible provider
+  ([`308267b`](https://github.com/celine-eu/celine-ai-assistant/commit/308267be348e48183a1897e183cba7d1a4e516af))
+
+### Testing
+
+- Add auth test
+  ([`cfdfc51`](https://github.com/celine-eu/celine-ai-assistant/commit/cfdfc516c3f65f6b30ff88a6803adefb870ef7eb))
+
+
 ## v1.5.1 (2026-07-08)
 
 ### Bug Fixes
