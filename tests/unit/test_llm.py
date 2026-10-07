@@ -126,3 +126,43 @@ def test_the_dimensions_come_from_configuration_or_one_probe(monkeypatch):
     monkeypatch.setattr(settings, "llm_embed_dimensions", None)
     probe = SimpleNamespace(get_text_embedding=lambda text: [0.0] * 768)
     assert llm.embedding_dimensions(probe) == 768
+
+
+# ── generation_kwargs ─────────────────────────────────────────────
+
+
+def test_output_is_capped_by_default():
+    """A thinking model can loop for tens of thousands of tokens; nothing may run unbounded.
+
+    @verifies REQ-0051
+    """
+    assert _cfg().llm_max_tokens == 4096
+    assert _cfg(LLM_MAX_TOKENS="1500").llm_max_tokens == 1500
+
+
+@pytest.mark.parametrize("value", ["0", "-1", ""])
+def test_the_output_cap_cannot_be_switched_off(value):
+    # @verifies REQ-0051
+    with pytest.raises(ValueError):
+        _cfg(LLM_MAX_TOKENS=value)
+
+
+def test_an_unset_temperature_is_left_to_the_server(monkeypatch):
+    """Unset, no temperature is sent: vLLM then applies the model's own recommended
+    sampling, which is what keeps a thinking model out of repetition loops.
+
+    @verifies REQ-0051
+    """
+    assert _cfg().llm_temperature is None
+    assert _cfg(LLM_TEMPERATURE="").llm_temperature is None
+    monkeypatch.setattr(settings, "llm_max_tokens", 4096)
+    monkeypatch.setattr(settings, "llm_temperature", None)
+    assert llm.generation_kwargs() == {"max_tokens": 4096}
+
+
+def test_a_configured_temperature_is_sent(monkeypatch):
+    # @verifies REQ-0051
+    assert _cfg(LLM_TEMPERATURE="0.6").llm_temperature == 0.6
+    monkeypatch.setattr(settings, "llm_max_tokens", 2000)
+    monkeypatch.setattr(settings, "llm_temperature", 0.6)
+    assert llm.generation_kwargs() == {"max_tokens": 2000, "temperature": 0.6}

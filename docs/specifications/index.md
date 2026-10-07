@@ -32,7 +32,7 @@ grep -rho "@verifies REQ-[0-9]\{4\}" tests/ | sort | uniq -c
 | REQ-0006 – REQ-0013 | [conversations](conversations.md) |
 | REQ-0014 – REQ-0021, REQ-0048 – REQ-0049 | [attachments](attachments.md) |
 | REQ-0022 – REQ-0024, REQ-0041 | [retrieval](retrieval.md) |
-| REQ-0025 – REQ-0030 | [skills and the tool loop](skills.md) |
+| REQ-0025 – REQ-0030, REQ-0051 | [skills and the tool loop](skills.md) |
 | REQ-0031 – REQ-0033, REQ-0042 – REQ-0044 | [knowledge sources](knowledge-sources.md) |
 | REQ-0034, REQ-0045 – REQ-0046, REQ-0050 | [operability](operability.md) |
 

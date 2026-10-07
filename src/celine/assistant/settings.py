@@ -32,7 +32,16 @@ class Settings(BaseSettings):
     # The vector size the collection is created with. Empty means ask the model once.
     llm_embed_dimensions: int | None = Field(default=None, alias="LLM_EMBED_DIMENSIONS")
 
-    @field_validator("llm_embed_dimensions", mode="before")
+    # The most a single model call may generate, reasoning included on vLLM. Never off:
+    # a thinking model can loop for tens of thousands of tokens on one question.
+    llm_max_tokens: int = Field(default=4096, gt=0, alias="LLM_MAX_TOKENS")
+    # Empty means none is sent, and the server applies the model's own recommended
+    # sampling (vLLM reads it from the model's generation_config.json).
+    llm_temperature: float | None = Field(
+        default=None, ge=0, le=2, alias="LLM_TEMPERATURE"
+    )
+
+    @field_validator("llm_embed_dimensions", "llm_temperature", mode="before")
     @classmethod
     def _empty_is_unset(cls, value):
         # Charts render an unset value as an empty string.

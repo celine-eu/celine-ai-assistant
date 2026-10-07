@@ -41,7 +41,7 @@ async def describe_image(*, image_bytes: bytes, filename: str | None = None) -> 
                 ],
             },
         ],
-        temperature=0.2,
+        **llm.generation_kwargs(),
     )
 
     res = (resp.choices[0].message.content or "").strip()

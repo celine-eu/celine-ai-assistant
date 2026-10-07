@@ -53,6 +53,18 @@ def chat_client() -> AsyncOpenAI:
     return AsyncOpenAI(base_url=settings.llm_base_url, api_key=_api_key(settings.llm_api_key))
 
 
+def generation_kwargs() -> dict[str, Any]:
+    """What every chat-completion call sends besides its model and messages.
+
+    Always an output cap (`LLM_MAX_TOKENS`); a temperature only when one is configured,
+    so an unset `LLM_TEMPERATURE` leaves sampling to the model's own defaults.
+    """
+    kwargs: dict[str, Any] = {"max_tokens": settings.llm_max_tokens}
+    if settings.llm_temperature is not None:
+        kwargs["temperature"] = settings.llm_temperature
+    return kwargs
+
+
 def vision_model() -> str:
     return settings.llm_vision_model or settings.llm_chat_model
 

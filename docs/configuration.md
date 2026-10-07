@@ -20,6 +20,16 @@ without `LLM_BASE_URL`. To use OpenAI itself, set `https://api.openai.com/v1`.
 | `LLM_EMBED_API_KEY` | `str` | `LLM_API_KEY` | Key for the embeddings endpoint |
 | `LLM_EMBED_MODEL` | `str` | — | Embedding model for indexing and retrieval (required) |
 | `LLM_EMBED_DIMENSIONS` | `int?` | asked of the model | Vector size the collection is created with |
+| `LLM_MAX_TOKENS` | `int` | `4096` | Most a single model call may generate, reasoning included; cannot be switched off |
+| `LLM_TEMPERATURE` | `float?` | not sent | Sampling temperature; unset leaves it to the model's own defaults |
+
+A thinking model (Qwen3 and similar, served by vLLM) needs both. With `LLM_TEMPERATURE`
+unset, vLLM applies the sampling the model ships with in `generation_config.json`; for
+`qwen3.8-27b` that is temperature 1.0, top_k 20, top_p 0.95. Low values make these
+models loop: on 2026-10-06 one question kept
+`qwen3.8-27b` reasoning for about 20,000 tokens with no answer. `LLM_MAX_TOKENS` bounds
+the cost of a loop when one still happens. Until 2026-10-06 every call sent `0.2`; set
+`LLM_TEMPERATURE=0.2` to keep that.
 
 The `OPENAI_*` variables used before 2026-10-01 are no longer read. If one is set,
 startup refuses and names its replacement.

@@ -57,4 +57,17 @@ The tool loop runs at most `MAX_TOOL_ROUNDS` times, and **the last round is offe
 tools**, so a model that would otherwise keep calling them has to answer in prose. A turn
 producing neither an answer nor an error event is not an outcome a client can render.
 
+### REQ-0051 — what the model generates is bounded, and a cut answer says so
+
+Every model call (each tool-loop round, the history summary, an image caption) carries
+`max_tokens` = `LLM_MAX_TOKENS`, a positive integer that cannot be switched off. A
+thinking model counts its reasoning against it.
+
+A round that stops because it reached the cap (`finish_reason=length`) ends the turn with
+an `error` event after whatever text it streamed, and runs none of the tool calls it was
+writing: a truncated answer is never presented as a complete one.
+
+`LLM_TEMPERATURE` is sent only when it is set. Unset, the server applies the model's own
+recommended sampling.
+
 

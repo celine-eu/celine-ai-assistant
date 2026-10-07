@@ -476,6 +476,78 @@ async def test_parallel_tool_calls_are_disabled(monkeypatch):
     assert client.completions.calls[0]["parallel_tool_calls"] is False
 
 
+# @verifies REQ-0051
+async def test_every_round_carries_the_output_cap_and_the_configured_sampling(monkeypatch):
+    monkeypatch.setattr(settings, "llm_max_tokens", 1234)
+    monkeypatch.setattr(settings, "llm_temperature", None)
+    skill = ScriptedSkill()
+    client = FakeClient(
+        [
+            [tool_chunk(call_id="c", name="do_thing", arguments="{}", finish_reason="tool_calls")],
+            [text_chunk("done", "stop")],
+        ]
+    )
+
+    await collect(_agentic_loop(client, [], [{"type": "function"}], registry_with(skill)))
+
+    for call in client.completions.calls:
+        assert call["max_tokens"] == 1234
+        assert "temperature" not in call
+
+
+async def test_an_answer_cut_by_the_output_cap_ends_with_an_error_event():
+    """`finish_reason=length` is a truncated answer; presenting it as complete would be
+    a turn that silently says less than it should.
+
+    @verifies REQ-0051
+    """
+    client = FakeClient([[text_chunk("The members are"), text_chunk("", "length")]])
+
+    events = await collect(_agentic_loop(client, [], [], None))
+
+    assert types_of(events) == ["token", "error"]
+    assert len(client.completions.calls) == 1
+
+
+async def test_tool_calls_cut_by_the_output_cap_are_not_run():
+    # @verifies REQ-0051
+    skill = ScriptedSkill()
+    client = FakeClient(
+        [[tool_chunk(call_id="c", name="do_thing", arguments='{"a"', finish_reason="length")]]
+    )
+
+    events = await collect(
+        _agentic_loop(client, [], [{"type": "function"}], registry_with(skill))
+    )
+
+    assert skill.calls == []
+    assert types_of(events) == ["error"]
+
+
+# @verifies REQ-0051
+async def test_the_history_summary_is_capped_too(monkeypatch):
+    monkeypatch.setattr(settings, "chat_word_limit", 5)
+    monkeypatch.setattr(settings, "chat_hot_messages", 1)
+    monkeypatch.setattr(settings, "llm_max_tokens", 777)
+    monkeypatch.setattr(settings, "llm_temperature", 0.6)
+    summary_response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="- solar"))]
+    )
+    client = FakeClient([summary_response, [text_chunk("ok", "stop")]])
+    monkeypatch.setattr(openai_stream, "_client", lambda: client)
+    history = [
+        {"role": "user", "content": "one two three four"},
+        {"role": "assistant", "content": "five six seven eight"},
+    ]
+
+    await collect(stream_chat(user_message="nine", context_blocks=[], history=history))
+
+    summary_call = client.completions.calls[0]
+    assert not summary_call.get("stream")
+    assert summary_call["max_tokens"] == 777
+    assert summary_call["temperature"] == 0.6
+
+
 # @verifies REQ-0012
 async def test_an_over_long_history_is_summarised_into_a_single_turn(monkeypatch):
     monkeypatch.setattr(settings, "chat_word_limit", 5)

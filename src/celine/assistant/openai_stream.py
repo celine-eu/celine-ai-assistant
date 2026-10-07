@@ -90,7 +90,7 @@ async def _summarize_messages(
             },
             {"role": "user", "content": conversation},
         ],
-        temperature=0.2,
+        **llm.generation_kwargs(),
     )
     return summary.choices[0].message.content or ""
 
@@ -216,8 +216,8 @@ async def _agentic_loop(
         create_kwargs: dict[str, Any] = {
             "model": settings.llm_chat_model,
             "messages": api_messages,
-            "temperature": 0.2,
             "stream": True,
+            **llm.generation_kwargs(),
         }
         if tools and not answer_only:
             create_kwargs["tools"] = tools
@@ -271,6 +271,14 @@ async def _agentic_loop(
             "agentic_round_%d_done: %.2fs finish=%s text=%d tools=%d",
             _round, elapsed, finish_reason, len("".join(text_chunks)), len(tool_calls_acc),
         )
+
+        if finish_reason == "length":
+            # Cut by LLM_MAX_TOKENS: the text is incomplete and any tool call half-written.
+            log.warning(
+                "llm_output_capped_round_%d: max_tokens=%d", _round, settings.llm_max_tokens
+            )
+            yield _sse("error", {"message": "The answer was cut short. Please try again."})
+            break
 
         if finish_reason != "tool_calls" or not tool_calls_acc or not skill_registry:
             break
