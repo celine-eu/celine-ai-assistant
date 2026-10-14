@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1 (2026-10-14)
+
+### Bug Fixes
+
+- **skills**: Read meter columns as grid exchange; report season points
+  ([`a7e5ced`](https://github.com/celine-eu/celine-ai-assistant/commit/a7e5cede6b8bb8f4d82cefab07b922591e491bad))
+
+
 ## v1.6.0 (2026-10-07)
 
 ### Bug Fixes
