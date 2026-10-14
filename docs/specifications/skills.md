@@ -34,9 +34,14 @@ upstream returns nothing, the skill says so in words rather than reporting zero 
 is a number, and the model will repeat it as one.
 
 A figure reported as a member's own covers everything they own: participant metrics query
-**every** registered meter and combine the readings, and self-consumption is the
-per-interval overlap of production and consumption rather than the minimum of the
-window's totals.
+**every** registered meter and combine the readings. The meter rows hold the grid exchange
+under production and consumption names (`production_kwh` is the export, `consumption_kwh`
+the import); production is the export plus what was self-consumed, and consumption the
+import plus what was self-consumed. A meter without a production meter (M2) reports only
+the grid exchange and says that production and self-consumption are not measured — never
+the export as production.
+
+Points, level and ranking are the current season's: lifetime totals are not disclosed.
 
 ### REQ-0029 — starter prompts are filtered to the skills that are available
 

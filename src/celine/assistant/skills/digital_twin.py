@@ -65,8 +65,10 @@ class DigitalTwinSkill(Skill):
                 "function": {
                     "name": "query_participant_metrics",
                     "description": (
-                        "Query the user's energy metrics (production, consumption, self-consumption) "
-                        "from their smart meter. Returns data for a specified time window."
+                        "Query the user's energy metrics (production, consumption, self-consumption, "
+                        "grid export and import) from their smart meters. Returns data for a "
+                        "specified time window. Production and self-consumption are present only "
+                        "for meters that measure them; read the `note` field when present."
                     ),
                     "parameters": {
                         "type": "object",
@@ -211,44 +213,81 @@ class DigitalTwinSkill(Skill):
             )
         )
 
-        items = [
-            item
-            for response in responses
-            for item in (getattr(response, "items", []) or [])
-        ]
-        if not items:
+        readings = {
+            device_id: getattr(response, "items", []) or []
+            for device_id, response in zip(device_ids, responses)
+        }
+        data_points = sum(len(rows) for rows in readings.values())
+        if not data_points:
             return json.dumps({
                 "window_hours": hours,
                 "device_ids": device_ids,
                 "message": "No meter data available for this period.",
             })
 
-        consumption_kwh = 0.0
-        production_kwh = 0.0
+        # The gold columns are named after production and consumption but hold what the
+        # exchange meter (M1) saw: `production_kwh` is the grid export, `consumption_kwh`
+        # the grid import. `self_consumed_kwh` is the production meter (M2) less the
+        # export, and is the negative of the export wherever M2 has no reading.
+        grid_export_kwh = 0.0
+        grid_import_kwh = 0.0
+        measured_export_kwh = 0.0
+        measured_import_kwh = 0.0
         self_consumption_kwh = 0.0
-        for item in items:
-            row = item.to_dict()
-            consumed = _safe_float(row.get("consumption_kwh"))
-            produced = _safe_float(row.get("production_kwh"))
-            consumption_kwh += consumed
-            production_kwh += produced
-            # Per interval. Taking the minimum of the window-wide totals instead would
-            # credit midday solar against evening load and read high.
-            self_consumption_kwh += min(produced, consumed)
+        without_m2: list[str] = []
+        for device_id in device_ids:
+            export = imported = self_consumed = 0.0
+            for item in readings[device_id]:
+                row = item.to_dict()
+                export += _safe_float(row.get("production_kwh"))
+                imported += _safe_float(row.get("consumption_kwh"))
+                # An interval without an M2 reading says only that production was at
+                # least the export, so its negative self-consumption is dropped.
+                self_consumed += max(_safe_float(row.get("self_consumed_kwh")), 0.0)
+            grid_export_kwh += export
+            grid_import_kwh += imported
+            # A device has a production meter iff it ever saw self-consumption.
+            if self_consumed > 0:
+                measured_export_kwh += export
+                measured_import_kwh += imported
+                self_consumption_kwh += self_consumed
+            elif readings[device_id]:
+                without_m2.append(device_id)
 
-        return json.dumps({
+        result: dict[str, Any] = {
             "window_hours": hours,
             "window_start_utc": start.isoformat(),
             "window_end_utc": now.isoformat(),
             "device_ids": device_ids,
-            "production_kwh": round(production_kwh, 2),
-            "consumption_kwh": round(consumption_kwh, 2),
-            "self_consumption_kwh": round(self_consumption_kwh, 2),
-            "self_consumption_rate": round(
-                _safe_ratio(self_consumption_kwh, consumption_kwh) or 0, 4
-            ),
-            "data_points": len(items),
-        }, ensure_ascii=False)
+            "grid_export_kwh": round(grid_export_kwh, 2),
+            "grid_import_kwh": round(grid_import_kwh, 2),
+            "data_points": data_points,
+        }
+        if self_consumption_kwh > 0:
+            production_kwh = measured_export_kwh + self_consumption_kwh
+            consumption_kwh = measured_import_kwh + self_consumption_kwh
+            result.update({
+                "production_kwh": round(production_kwh, 2),
+                "consumption_kwh": round(consumption_kwh, 2),
+                "self_consumption_kwh": round(self_consumption_kwh, 2),
+                # Share of production used on site, and share of consumption covered by it.
+                "self_consumption_rate": round(
+                    _safe_ratio(self_consumption_kwh, production_kwh) or 0, 4
+                ),
+                "self_sufficiency_rate": round(
+                    _safe_ratio(self_consumption_kwh, consumption_kwh) or 0, 4
+                ),
+            })
+        if without_m2:
+            result["devices_without_production_meter"] = without_m2
+            result["note"] = (
+                f"Meters {', '.join(without_m2)} have no production meter: their solar "
+                "production, self-consumption and total consumption are not measured, only "
+                "the energy exported to and imported from the grid. Do not present grid "
+                "export as production. Without solar panels, grid import is the consumption."
+            )
+
+        return json.dumps(result, ensure_ascii=False)
 
     async def _community_metrics(
         self, days: int, on_progress: ProgressCallback | None

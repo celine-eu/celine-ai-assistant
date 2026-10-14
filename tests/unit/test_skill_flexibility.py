@@ -170,12 +170,29 @@ async def test_an_unparseable_period_end_keeps_the_suggestion(monkeypatch):
 # --- gamification -----------------------------------------------------------
 
 
-def points_client(rows: list[Item], sensors=("meter-1",)) -> FakeDTClient:
-    return FakeDTClient(
-        participants=FakeParticipants(
-            assets=with_sensors(*sensors),
-            values={"rec_participant_points": Page(rows)},
+SEASON = {"season_start": "2026-09-01", "season_end": "2026-11-01"}
+
+
+def points_client(
+    season_points: int | None = None,
+    daily: list[Item] | None = None,
+    sensors=("meter-1",),
+    rank=(9, 44),
+) -> FakeDTClient:
+    values = {"rec_participant_points": Page(daily or [])}
+    if season_points is not None:
+        values["rec_points_leaderboard"] = Page(
+            [
+                Item(
+                    **SEASON,
+                    season_points=season_points,
+                    season_rank=rank[0],
+                    total_members=rank[1],
+                )
+            ]
         )
+    return FakeDTClient(
+        participants=FakeParticipants(assets=with_sensors(*sensors), values=values)
     )
 
 
@@ -192,29 +209,59 @@ async def test_the_level_is_derived_from_the_points(monkeypatch, points, level, 
     @verifies REQ-0028
     """
     assert POINTS_PER_LEVEL == 100
-    skill = build(
-        monkeypatch,
-        flex=FakeFlexClient(),
-        dt=points_client([Item(ts_date="2026-08-14", daily_points=points)]),
-    )
+    skill = build(monkeypatch, flex=FakeFlexClient(), dt=points_client(points))
 
     result = await run(skill, "get_gamification_status")
 
-    assert result["total_points"] == points
+    assert result["season_points"] == points
     assert result["level"] == level
     assert result["points_to_next_level"] == to_next
 
 
-# @verifies REQ-0028
-async def test_daily_points_are_summed_and_the_last_week_is_returned(monkeypatch):
-    rows = [Item(ts_date=f"2026-08-{d:02d}", daily_points=d) for d in range(1, 11)]
-    skill = build(monkeypatch, flex=FakeFlexClient(), dt=points_client(rows))
+async def test_points_are_the_current_season_s_not_a_sum_of_the_daily_ledger(monkeypatch):
+    """The daily ledger comes oldest-first and capped at 365 rows, so past a year its sum
+    is the first year's — 758 for a member with 1219 this season. Lifetime totals are
+    private by contract in any case; the season total is the published figure.
+
+    @verifies REQ-0028
+    """
+    daily = [Item(ts_date="2025-09-01", daily_points=758)]
+    skill = build(monkeypatch, flex=FakeFlexClient(), dt=points_client(1219, daily))
 
     result = await run(skill, "get_gamification_status")
 
-    assert result["total_points"] == sum(range(1, 11))
+    assert result["season_points"] == 1219
+    assert result["level"] == 13
+    assert result["season_start"] == "2026-09-01"
+    assert result["season_end"] == "2026-11-01"
+    assert "total_points" not in result
+
+
+# @verifies REQ-0028
+async def test_only_days_in_the_current_season_are_shown_as_recent(monkeypatch):
+    daily = [Item(ts_date="2026-08-24", daily_points=33)] + [
+        Item(ts_date=f"2026-09-{d:02d}", daily_points=d) for d in range(1, 11)
+    ]
+    skill = build(monkeypatch, flex=FakeFlexClient(), dt=points_client(55, daily))
+
+    result = await run(skill, "get_gamification_status")
+
     assert len(result["recent_daily_points"]) == 7
-    assert result["recent_daily_points"][-1] == {"date": "2026-08-10", "points": 10}
+    assert result["recent_daily_points"][0] == {"date": "2026-09-04", "points": 4}
+    assert result["recent_daily_points"][-1] == {"date": "2026-09-10", "points": 10}
+
+
+async def test_a_ledger_that_stops_before_the_season_shows_no_history(monkeypatch):
+    """A truncated ledger ends in an old season; those days are not "recent".
+
+    @verifies REQ-0028
+    """
+    daily = [Item(ts_date="2026-08-24", daily_points=33)]
+    skill = build(monkeypatch, flex=FakeFlexClient(), dt=points_client(55, daily))
+
+    result = await run(skill, "get_gamification_status")
+
+    assert "recent_daily_points" not in result
 
 
 async def test_a_participant_with_no_meter_scores_zero_rather_than_failing(monkeypatch):
@@ -232,7 +279,7 @@ async def test_a_participant_with_no_meter_scores_zero_rather_than_failing(monke
     result = await run(skill, "get_gamification_status")
 
     assert result == {
-        "total_points": 0,
+        "season_points": 0,
         "level": 1,
         "next_level_at": 100,
         "points_to_next_level": 100,
@@ -240,18 +287,10 @@ async def test_a_participant_with_no_meter_scores_zero_rather_than_failing(monke
 
 
 # @verifies REQ-0028
-async def test_a_ranking_is_reported_as_a_percentile(monkeypatch):
-    dt = FakeDTClient(
-        participants=FakeParticipants(
-            assets=with_sensors("meter-1"),
-            values={
-                "rec_gamification_summary": Page(
-                    [Item(rank_position=3, total_members=40)]
-                )
-            },
-        )
+async def test_the_ranking_is_the_season_points_rank(monkeypatch):
+    skill = build(
+        monkeypatch, flex=FakeFlexClient(), dt=points_client(1219, rank=(3, 40))
     )
-    skill = build(monkeypatch, flex=FakeFlexClient(), dt=dt)
 
     result = await run(skill, "get_gamification_status")
     assert result["ranking"] == {"position": 3, "total_members": 40, "top_percent": 8}
@@ -271,7 +310,7 @@ async def test_a_settled_commitment_is_re_scored_from_the_real_ledger(monkeypatc
         flex=FakeFlexClient(
             commitments=[commitment(status="settled", estimated=10, actual=10)]
         ),
-        dt=points_client([Item(ts_date="2026-08-14", daily_points=7)]),
+        dt=points_client(daily=[Item(ts_date="2026-08-14", daily_points=7)]),
     )
 
     result = await run(skill, "get_commitment_history")
@@ -289,7 +328,7 @@ async def test_an_unsettled_commitment_keeps_the_services_own_number(monkeypatch
         flex=FakeFlexClient(
             commitments=[commitment(status="accepted", estimated=10, actual=None)]
         ),
-        dt=points_client([Item(ts_date="2026-08-14", daily_points=7)]),
+        dt=points_client(daily=[Item(ts_date="2026-08-14", daily_points=7)]),
     )
 
     (row,) = (await run(skill, "get_commitment_history"))["commitments"]
@@ -303,7 +342,7 @@ async def test_a_settled_day_with_no_ledger_entry_scores_zero(monkeypatch):
         flex=FakeFlexClient(
             commitments=[commitment(status="settled", day="2026-08-14", actual=10)]
         ),
-        dt=points_client([Item(ts_date="2026-08-01", daily_points=99)]),
+        dt=points_client(daily=[Item(ts_date="2026-08-01", daily_points=99)]),
     )
 
     (row,) = (await run(skill, "get_commitment_history"))["commitments"]

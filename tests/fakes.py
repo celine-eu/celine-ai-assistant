@@ -41,7 +41,9 @@ class FakeParticipants:
     def __init__(self, *, profile=None, assets=None, values=None, raises=None):
         self._profile = profile if profile is not None else Attr()
         self._assets = assets if assets is not None else Page()
-        self._values: dict[str, Page] = values or {}
+        # A value is a Page, or a callable taking the payload — for answers that differ
+        # per device.
+        self._values: dict[str, Any] = values or {}
         self._raises = raises or {}
         self.calls: list[tuple[str, dict]] = []
 
@@ -63,7 +65,8 @@ class FakeParticipants:
         )
         if fetcher_id in self._raises:
             raise self._raises[fetcher_id]
-        return self._values.get(fetcher_id, Page())
+        value = self._values.get(fetcher_id, Page())
+        return value(payload) if callable(value) else value
 
 
 class FakeCommunities:

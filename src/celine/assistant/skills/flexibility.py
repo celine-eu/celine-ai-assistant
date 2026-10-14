@@ -72,8 +72,9 @@ class FlexibilitySkill(Skill):
                 "function": {
                     "name": "get_gamification_status",
                     "description": (
-                        "Get the user's gamification status: total points, level, "
-                        "community ranking, earned badges, and daily points history. "
+                        "Get the user's gamification status for the current season: points, "
+                        "level, community ranking by points, and this season's daily points. "
+                        "Points and level restart each season. "
                         "Use when the user asks about their points, level, rank, badges, "
                         "or engagement progress."
                     ),
@@ -212,60 +213,62 @@ class FlexibilitySkill(Skill):
 
         device_id = await self._resolve_device_id()
 
-        total_points = 0
-        daily_points: list[dict[str, Any]] = []
+        # Points, level and rank are the current season's. Lifetime totals are private
+        # by contract (rec_points_leaderboard.sql), and summing the daily ledger is not
+        # one anyway: the twin serves it oldest-first, capped at 365 rows.
+        season: dict[str, Any] = {}
         if device_id:
+            try:
+                res = await self._dt.participants.fetch_values(
+                    participant_id=self._user_id,
+                    fetcher_id="rec_points_leaderboard",
+                    payload={"device_id": device_id},
+                )
+                if res and res.count > 0:
+                    season = res.items[0].to_dict()
+            except Exception as exc:
+                log.warning("rec_points_leaderboard fetch failed: %s", exc)
+
+        season_points = int(season.get("season_points") or 0)
+        level = max(1, season_points // POINTS_PER_LEVEL + 1)
+        next_level_at = level * POINTS_PER_LEVEL
+
+        result: dict[str, Any] = {
+            "season_points": season_points,
+            "level": level,
+            "next_level_at": next_level_at,
+            "points_to_next_level": next_level_at - season_points,
+        }
+        if season:
+            result["season_start"] = str(season.get("season_start", ""))
+            result["season_end"] = str(season.get("season_end", ""))
+            if season.get("season_rank"):
+                position = int(season["season_rank"])
+                total = max(int(season.get("total_members") or 1), 1)
+                result["ranking"] = {
+                    "position": position,
+                    "total_members": total,
+                    "top_percent": math.ceil(position / total * 100),
+                }
+
+            daily_points: list[dict[str, Any]] = []
             try:
                 pts_res = await self._dt.participants.fetch_values(
                     participant_id=self._user_id,
                     fetcher_id="rec_participant_points",
                     payload={"device_id": device_id},
                 )
-                if pts_res and pts_res.count > 0:
-                    for item in pts_res.items:
-                        d = item.to_dict()
-                        day = str(d.get("ts_date", ""))
-                        pts = int(d.get("daily_points") or 0)
-                        total_points += pts
-                        daily_points.append({"date": day, "points": pts})
-                    daily_points.sort(key=lambda x: x["date"])
+                for item in getattr(pts_res, "items", []) or []:
+                    d = item.to_dict()
+                    day = str(d.get("ts_date", ""))
+                    # A truncated ledger ends in an earlier season; those are not recent.
+                    if day >= result["season_start"]:
+                        daily_points.append({"date": day, "points": int(d.get("daily_points") or 0)})
             except Exception as exc:
                 log.warning("rec_participant_points fetch failed: %s", exc)
-
-        level = max(1, total_points // POINTS_PER_LEVEL + 1)
-        next_level_at = level * POINTS_PER_LEVEL
-
-        ranking: dict[str, Any] | None = None
-        if device_id:
-            try:
-                today = datetime.now(timezone.utc).date().isoformat()
-                res = await self._dt.participants.fetch_values(
-                    participant_id=self._user_id,
-                    fetcher_id="rec_gamification_summary",
-                    payload={"device_id": device_id, "date": today},
-                )
-                if res and res.count > 0:
-                    d = res.items[0].to_dict()
-                    position = int(d.get("rank_position", 1))
-                    total = max(int(d.get("total_members", 1)), 1)
-                    ranking = {
-                        "position": position,
-                        "total_members": total,
-                        "top_percent": math.ceil(position / total * 100),
-                    }
-            except Exception as exc:
-                log.warning("rec_gamification_summary fetch failed: %s", exc)
-
-        result: dict[str, Any] = {
-            "total_points": total_points,
-            "level": level,
-            "next_level_at": next_level_at,
-            "points_to_next_level": next_level_at - total_points,
-        }
-        if ranking:
-            result["ranking"] = ranking
-        if daily_points:
-            result["recent_daily_points"] = daily_points[-7:]
+            if daily_points:
+                daily_points.sort(key=lambda x: x["date"])
+                result["recent_daily_points"] = daily_points[-7:]
 
         return json.dumps(result, ensure_ascii=False)
 

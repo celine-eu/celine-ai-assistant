@@ -58,60 +58,99 @@ async def test_a_profile_without_a_membership_still_answers(monkeypatch):
 # --- participant metrics ----------------------------------------------------
 
 
-def meter_readings() -> Page:
-    return Page(
-        [
-            Item(consumption_kwh=1.0, production_kwh=3.0),
-            Item(consumption_kwh=2.0, production_kwh=0.5),
-        ]
+def reading(export: float, imported: float, self_consumed: float | None = None) -> Item:
+    """One 15-minute row of `meters_data`, under the names the gold table gives it.
+
+    `production_kwh` is what the exchange meter (M1) exported and `consumption_kwh` what
+    it imported. `self_consumed_kwh` is the production meter (M2) minus the export — and
+    is the negative of the export wherever M2 has no reading.
+    """
+    fields = {"production_kwh": export, "consumption_kwh": imported}
+    if self_consumed is not None:
+        fields["self_consumed_kwh"] = self_consumed
+    return Item(**fields)
+
+
+def with_m2() -> Page:
+    return Page([reading(3.0, 0.0, 1.0), reading(0.0, 2.0, 0.0)])
+
+
+def m1_only() -> Page:
+    return Page([reading(3.0, 1.0, -3.0), reading(0.0, 2.0, 0.0)])
+
+
+def metrics_skill(monkeypatch, values, sensors=("meter-1",)):
+    participants = FakeParticipants(
+        assets=with_sensors(*sensors), values={"meters_data": values}
     )
+    return build(monkeypatch, FakeDTClient(participants=participants)), participants
 
 
 # @verifies REQ-0028
 async def test_meter_readings_are_summed_over_the_window(monkeypatch):
-    skill = build(
-        monkeypatch,
-        FakeDTClient(
-            participants=FakeParticipants(
-                assets=with_sensors("meter-1"),
-                values={"meters_data": meter_readings()},
-            )
-        ),
-    )
+    skill, _ = metrics_skill(monkeypatch, with_m2())
 
     result = await run(skill, "query_participant_metrics", hours=6)
 
-    assert result["consumption_kwh"] == 3.0
-    assert result["production_kwh"] == 3.5
+    assert result["grid_export_kwh"] == 3.0
+    assert result["grid_import_kwh"] == 2.0
     assert result["data_points"] == 2
     assert result["window_hours"] == 6
 
 
-async def test_self_consumption_is_summed_per_interval(monkeypatch):
-    """Energy is only self-consumed if it is used when it is produced, so the overlap is
-    per reading and then summed.
-
-    Taking `min` of the window-wide totals instead would credit midday solar against
-    evening load: here that would report 3.0 kWh and a rate of 1.0, for a household that
-    actually matched 1.5.
+async def test_production_is_export_plus_what_was_self_consumed(monkeypatch):
+    """The gold columns are named after production and consumption but hold the grid
+    exchange. Reported as they are, a household that made 4 kWh and used 3 was told it
+    made 3 and used 2 — and that 2 % of it was self-consumed.
 
     @verifies REQ-0028
     """
-    skill = build(
-        monkeypatch,
-        FakeDTClient(
-            participants=FakeParticipants(
-                assets=with_sensors("meter-1"),
-                values={"meters_data": meter_readings()},
-            )
-        ),
+    skill, _ = metrics_skill(monkeypatch, with_m2())
+
+    result = await run(skill, "query_participant_metrics")
+
+    assert result["production_kwh"] == 4.0
+    assert result["self_consumption_kwh"] == 1.0
+    assert result["consumption_kwh"] == 3.0
+    assert result["self_consumption_rate"] == 0.25
+    assert result["self_sufficiency_rate"] == 0.3333
+
+
+async def test_an_interval_missing_its_m2_reading_does_not_cancel_its_export(monkeypatch):
+    """Where M2 has no reading, the gold row carries `self_consumed = -export`. Taken
+    literally it would subtract the export from production; what is known is only that
+    production was at least the export.
+
+    @verifies REQ-0028
+    """
+    skill, _ = metrics_skill(
+        monkeypatch, Page([reading(2.0, 0.0, -2.0), reading(1.0, 0.0, 3.0)])
     )
 
     result = await run(skill, "query_participant_metrics")
 
-    # min(1.0, 3.0) + min(2.0, 0.5)
-    assert result["self_consumption_kwh"] == 1.5
-    assert result["self_consumption_rate"] == 0.5
+    assert result["production_kwh"] == 6.0
+    assert result["self_consumption_kwh"] == 3.0
+
+
+async def test_without_a_production_meter_only_the_grid_exchange_is_reported(monkeypatch):
+    """An M1-only meter sees the grid and nothing behind it, so production and
+    self-consumption are unknown, not zero and not negative. No `production_kwh` key is
+    sent: given one, the model reports the export as what the panels made.
+
+    @verifies REQ-0028
+    """
+    skill, _ = metrics_skill(monkeypatch, m1_only())
+
+    result = await run(skill, "query_participant_metrics")
+
+    assert result["grid_export_kwh"] == 3.0
+    assert result["grid_import_kwh"] == 3.0
+    for key in ("production_kwh", "consumption_kwh", "self_consumption_kwh",
+                "self_consumption_rate", "self_sufficiency_rate"):
+        assert key not in result
+    assert result["devices_without_production_meter"] == ["meter-1"]
+    assert "not measured" in result["note"]
 
 
 async def test_every_meter_is_queried_and_the_readings_combined(monkeypatch):
@@ -121,11 +160,9 @@ async def test_every_meter_is_queried_and_the_readings_combined(monkeypatch):
 
     @verifies REQ-0028
     """
-    participants = FakeParticipants(
-        assets=with_sensors("meter-1", "meter-2"),
-        values={"meters_data": meter_readings()},
+    skill, participants = metrics_skill(
+        monkeypatch, with_m2(), sensors=("meter-1", "meter-2")
     )
-    skill = build(monkeypatch, FakeDTClient(participants=participants))
 
     result = await run(skill, "query_participant_metrics")
 
@@ -135,6 +172,28 @@ async def test_every_meter_is_queried_and_the_readings_combined(monkeypatch):
     # Both meters' readings, summed.
     assert result["consumption_kwh"] == 6.0
     assert result["data_points"] == 4
+
+
+async def test_production_covers_only_the_meters_that_measure_it(monkeypatch):
+    """With one M1+M2 meter and one M1-only, production is the first meter's and the
+    second is named, so the model does not present a part as the whole.
+
+    @verifies REQ-0028
+    """
+    pages = {"meter-1": with_m2(), "meter-2": m1_only()}
+    skill, _ = metrics_skill(
+        monkeypatch,
+        lambda payload: pages[payload["device_id"]],
+        sensors=("meter-1", "meter-2"),
+    )
+
+    result = await run(skill, "query_participant_metrics")
+
+    assert result["production_kwh"] == 4.0
+    assert result["grid_export_kwh"] == 6.0
+    assert result["grid_import_kwh"] == 5.0
+    assert result["devices_without_production_meter"] == ["meter-2"]
+    assert "meter-2" in result["note"]
 
 
 # @verifies REQ-0028
@@ -166,10 +225,7 @@ async def test_an_empty_window_is_a_message_rather_than_zeroes(monkeypatch):
 @pytest.mark.parametrize("hours", [0, -5])
 # @verifies REQ-0028
 async def test_a_non_positive_window_is_floored_at_one_hour(monkeypatch, hours):
-    participants = FakeParticipants(
-        assets=with_sensors("meter-1"), values={"meters_data": meter_readings()}
-    )
-    skill = build(monkeypatch, FakeDTClient(participants=participants))
+    skill, _ = metrics_skill(monkeypatch, with_m2())
 
     result = await run(skill, "query_participant_metrics", hours=hours)
 
@@ -178,23 +234,14 @@ async def test_a_non_positive_window_is_floored_at_one_hour(monkeypatch, hours):
 
 # @verifies REQ-0028
 async def test_an_unreadable_value_counts_as_zero_rather_than_failing(monkeypatch):
-    skill = build(
+    skill, _ = metrics_skill(
         monkeypatch,
-        FakeDTClient(
-            participants=FakeParticipants(
-                assets=with_sensors("meter-1"),
-                values={
-                    "meters_data": Page(
-                        [Item(consumption_kwh="n/a", production_kwh=None)]
-                    )
-                },
-            )
-        ),
+        Page([Item(consumption_kwh="n/a", production_kwh=None, self_consumed_kwh="x")]),
     )
 
     result = await run(skill, "query_participant_metrics")
-    assert result["consumption_kwh"] == 0.0
-    assert result["production_kwh"] == 0.0
+    assert result["grid_import_kwh"] == 0.0
+    assert result["grid_export_kwh"] == 0.0
 
 
 # --- community metrics ------------------------------------------------------
