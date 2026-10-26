@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.0 (2026-10-26)
+
+### Features
+
+- Mark, trace and erase assistant output; treat retrieved text as data
+  ([`ebe691b`](https://github.com/celine-eu/celine-ai-assistant/commit/ebe691bfef626be1b256829c743b9fb1d158f3af))
+
+
 ## v1.6.1 (2026-10-14)
 
 ### Bug Fixes
