@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.1 (2026-10-26)
+
+### Bug Fixes
+
+- **history**: Store a missing trace as SQL NULL, not JSON null
+  ([`e30a621`](https://github.com/celine-eu/celine-ai-assistant/commit/e30a621ec60d2fb1fb17d7563d3dafbc302af2a3))
+
+
 ## v1.7.0 (2026-10-26)
 
 ### Features
