@@ -39,8 +39,9 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # What produced an `assistant` message: model, sources, tool calls (REQ-0053).
-    # Null on `user` messages and on answers stored before it was recorded.
-    trace: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Null on `user` messages and on answers stored before it was recorded: SQL NULL, not the
+    # JSON value `null` (none_as_null), so `trace IS NULL` finds both.
+    trace: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     conversation: Mapped[Conversation] = relationship(
         "Conversation", back_populates="messages"

@@ -324,6 +324,30 @@ async def test_an_answer_s_trace_is_stored_on_its_row(store, session_factory, cl
     ]
 
 
+async def test_a_message_without_a_trace_is_sql_null(store, session_factory):
+    """Not the JSON value `null`: read back, both are `None`, but `trace IS NULL` (and every
+    row stored before the column existed) sees only SQL NULL.
+
+    @verifies REQ-0053
+    """
+    from sqlalchemy import func, select
+
+    from celine.assistant.db import Message
+
+    conv = await store.get_or_create_conversation(ALICE, "c1")
+    await store.append_message(ALICE, conv.conversation_id, "user", "q")
+    await store.append_message(ALICE, conv.conversation_id, "assistant", "a")
+
+    async with session_factory() as session:
+        nulls = await session.scalar(
+            select(func.count())
+            .select_from(Message)
+            .where(Message.conversation_id == "c1", Message.trace.is_(None))
+        )
+
+    assert nulls == 2
+
+
 # @verifies REQ-0053
 async def test_the_trace_is_not_listed_with_the_messages(store):
     conv = await store.get_or_create_conversation(ALICE, "c1")
