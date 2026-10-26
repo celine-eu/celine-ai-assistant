@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from celine.assistant import erasure
 from celine.assistant import routes as routes_module
 from tests.conftest import ADMIN_ID, COMMUNITY, NEIGHBOUR_ID, OTHER_COMMUNITY, USER_ID
 
@@ -151,18 +152,25 @@ async def test_an_unrecognised_scope_is_an_internal_error(
 
 @pytest.fixture
 def deletable_blob(monkeypatch):
-    """Records the blob paths deleted, and the document ids deleted from the index."""
+    """Records the blob paths deleted, and the payload matches deleted from the index
+    (every collection: REQ-0056)."""
     deleted: list[str] = []
-    unindexed: list[str] = []
+    unindexed: list[dict[str, str]] = []
 
-    async def _delete(path: str) -> None:
+    async def _delete(path: str) -> bool:
         deleted.append(path)
+        return True
 
-    async def _delete_document(doc_id: str, *, community_id: str) -> None:
-        unindexed.append((community_id, doc_id))
+    async def _reachable() -> bool:
+        return True
 
-    monkeypatch.setattr(routes_module, "delete_upload", _delete)
-    monkeypatch.setattr(routes_module, "delete_document", _delete_document)
+    def _delete_everywhere(match, exclude=None) -> dict[str, int]:
+        unindexed.append(match)
+        return {"kb": 1}
+
+    monkeypatch.setattr(erasure, "delete_upload", _delete)
+    monkeypatch.setattr(erasure, "storage_reachable", _reachable)
+    monkeypatch.setattr(erasure.rag, "delete_everywhere", _delete_everywhere)
     return SimpleNamespace(blobs=deleted, documents=unindexed)
 
 
@@ -221,45 +229,41 @@ async def test_a_manager_cannot_delete_another_community_s_system_attachment(
     assert await history.get_attachment_any(att_id) is not None
 
 
-async def test_an_attachment_with_no_community_has_nothing_to_unindex(
+async def test_an_attachment_with_no_community_is_unindexed_too(
     client, history, user_headers, deletable_blob
 ):
-    """Rows from before knowledge bases were per community, and uploads by a caller
-    with no REC, were never indexed into one.
+    """Rows from before knowledge bases were per community may still have vectors in the
+    collection used then; the delete matches on the attachment id everywhere.
 
-    @verifies REQ-0021
+    @verifies REQ-0056
     """
     att_id = await make_attachment(history, community_id=None)
 
     r = await client.delete(f"/attachments/{att_id}", headers=user_headers)
 
     assert r.status_code == 200
-    assert deletable_blob.documents == []
+    assert deletable_blob.documents == [{"attachment_id": att_id}]
 
 
-async def test_the_row_is_removed_even_when_the_blob_will_not_delete(
-    client, history, member_headers, monkeypatch
+async def test_the_row_stays_when_the_blob_will_not_delete(
+    client, history, member_headers, deletable_blob, monkeypatch
 ):
-    """Storage may be gone, read-only or simply wrong; leaving an unreachable row
-    behind would be worse than an orphaned blob.
+    """A row removed while its file stays would leave the file with nothing to find it
+    by. The row stays, and the member is told to retry.
 
-    @verifies REQ-0016
+    @verifies REQ-0056
     """
 
-    async def _explode(path: str) -> None:
+    async def _explode(path: str) -> bool:
         raise OSError("read-only filesystem")
 
-    async def _delete_document(doc_id: str, *, community_id: str) -> None:
-        return None
-
-    monkeypatch.setattr(routes_module, "delete_upload", _explode)
-    monkeypatch.setattr(routes_module, "delete_document", _delete_document)
+    monkeypatch.setattr(erasure, "delete_upload", _explode)
     att_id = await make_attachment(history)
 
     r = await client.delete(f"/attachments/{att_id}", headers=member_headers)
 
-    assert r.status_code == 200
-    assert await history.get_attachment_any(att_id) is None
+    assert r.status_code == 503
+    assert await history.get_attachment_any(att_id) is not None
 
 
 # @verifies REQ-0020
@@ -275,39 +279,36 @@ async def test_deleting_an_attachment_also_removes_it_from_the_index(
     Leaving the last one behind meant deleted content stayed retrievable and quotable
     for as long as the collection did — which is not a deletion.
 
-    @verifies REQ-0021 @verifies REQ-0022
+    @verifies REQ-0021 @verifies REQ-0022 @verifies REQ-0056
     """
     att_id = await make_attachment(history)
 
     await client.delete(f"/attachments/{att_id}", headers=member_headers)
 
-    assert deletable_blob.documents == [(COMMUNITY, f"attachment:{att_id}")]
+    assert deletable_blob.documents == [{"attachment_id": att_id}]
+    assert deletable_blob.blobs == ["/tmp/bill.pdf"]
 
 
-async def test_the_row_is_removed_even_when_the_index_will_not_delete(
-    client, history, member_headers, monkeypatch
+async def test_the_row_stays_when_the_index_will_not_delete(
+    client, history, member_headers, deletable_blob, monkeypatch
 ):
-    """Qdrant being unreachable must not strand the attachment as undeletable. The
-    failure is logged; what is owed afterwards is a reindex, not a retry the caller has
-    to drive.
+    """Qdrant being unreachable must not leave vectors with no row pointing at them: the
+    row stays, nothing else is deleted, and the same delete can be repeated.
 
-    @verifies REQ-0021
+    @verifies REQ-0056
     """
 
-    async def _explode(doc_id: str, *, community_id: str) -> None:
+    def _explode(match, exclude=None):
         raise RuntimeError("qdrant unreachable")
 
-    async def _delete_blob(path: str) -> None:
-        return None
-
-    monkeypatch.setattr(routes_module, "delete_document", _explode)
-    monkeypatch.setattr(routes_module, "delete_upload", _delete_blob)
+    monkeypatch.setattr(erasure.rag, "delete_everywhere", _explode)
     att_id = await make_attachment(history)
 
     r = await client.delete(f"/attachments/{att_id}", headers=member_headers)
 
-    assert r.status_code == 200
-    assert await history.get_attachment_any(att_id) is None
+    assert r.status_code == 503
+    assert await history.get_attachment_any(att_id) is not None
+    assert deletable_blob.blobs == []
 
 
 # @verifies REQ-0018

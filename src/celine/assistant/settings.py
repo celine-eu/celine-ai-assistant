@@ -164,5 +164,9 @@ class Settings(BaseSettings):
     chat_word_limit: int = Field(default=25000, alias="CHAT_WORD_LIMIT")
     chat_hot_messages: int = Field(default=6, alias="CHAT_HOT_MESSAGES")
 
+    # REQ-0058: how long a member's conversations and attachments are kept after their
+    # last use. 12 is what the published privacy notice promises.
+    retention_months: int = Field(default=12, ge=1, alias="RETENTION_MONTHS")
+
 
 settings = Settings()

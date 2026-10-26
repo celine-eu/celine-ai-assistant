@@ -205,12 +205,27 @@ def open_upload_stream(path: str, chunk_size: int = 1024 * 1024) -> Iterator[byt
             yield buf
 
 
-async def delete_upload(path: str) -> None:
+async def storage_reachable() -> bool:
+    """Whether this process sees the stored files.
+
+    For local storage, whether the uploads directory exists: a process without the
+    service's volume (the operator pod) would otherwise take every file for already
+    deleted. Remote storage is assumed reachable; a failure there raises on use.
+    """
+    fs, root = _fs_and_root()
+    if "://" in root:  # `_fs_and_root` strips the scheme of local storage only
+        return True
+    return await asyncio.to_thread(fs.isdir, root)
+
+
+async def delete_upload(path: str) -> bool:
+    """Delete a stored file. True when there was one to delete."""
     fs, _ = _fs_and_root()
 
-    def _run() -> None:
+    def _run() -> bool:
         if fs.exists(path):
             fs.rm(path)
-        return None
+            return True
+        return False
 
-    await asyncio.to_thread(_run)
+    return await asyncio.to_thread(_run)

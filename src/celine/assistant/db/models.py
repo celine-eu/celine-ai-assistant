@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, BigInteger, ForeignKey, Index, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -38,6 +38,9 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # What produced an `assistant` message: model, sources, tool calls (REQ-0053).
+    # Null on `user` messages and on answers stored before it was recorded.
+    trace: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     conversation: Mapped[Conversation] = relationship(
         "Conversation", back_populates="messages"

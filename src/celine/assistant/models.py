@@ -21,6 +21,8 @@ class ChatRequest(BaseModel):
 
 class ChatMeta(BaseModel):
     conversation_id: str
+    ai_generated: bool = True  # REQ-0052
+    generator: str = "celine-ai-assistant"
 
 
 class SSEEvent(BaseModel):

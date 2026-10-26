@@ -25,6 +25,7 @@ class DocumentSkill(Skill):
         return [
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "search_documents",
                     "description": (
@@ -51,6 +52,7 @@ class DocumentSkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_attachment_info",
                     "description": (

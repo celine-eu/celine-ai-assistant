@@ -135,7 +135,13 @@ class FakeHistoryStore:
     # -- messages --
 
     async def append_message(
-        self, user_id: str, conversation_id: str, role: str, content: str
+        self,
+        user_id: str,
+        conversation_id: str,
+        role: str,
+        content: str,
+        *,
+        trace: dict[str, Any] | None = None,
     ) -> str:
         msg_id = str(uuid.uuid4())
         self.messages.append(
@@ -146,6 +152,8 @@ class FakeHistoryStore:
                 "role": role,
                 "content": content,
                 "created_at": len(self.messages),  # monotonic, unlike time()
+                # Kept, never listed: REQ-0053.
+                "trace": trace,
             }
         )
         return msg_id
@@ -243,6 +251,68 @@ class FakeHistoryStore:
 
     async def delete_attachment_any(self, attachment_id: str) -> dict[str, Any] | None:
         return self.attachments.pop(attachment_id, None)
+
+    # -- erasure and retention --
+
+    async def delete_conversations_of(self, user_id: str) -> dict[str, int]:
+        owned = {c for c, conv in self.conversations.items() if conv.user_id == user_id}
+        kept = [
+            m
+            for m in self.messages
+            if m["user_id"] != user_id and m["conversation_id"] not in owned
+        ]
+        removed = len(self.messages) - len(kept)
+        self.messages = kept
+        for conversation_id in owned:
+            del self.conversations[conversation_id]
+        return {"conversations": len(owned), "messages": removed}
+
+    async def attachments_owned_by(self, user_id: str) -> list[dict[str, Any]]:
+        rows = [
+            a
+            for a in self.attachments.values()
+            if a["scope"] == "user" and a["owner_user_id"] == user_id
+        ]
+        return sorted(rows, key=lambda a: a["created_at"])
+
+    async def delete_idle_conversations(
+        self, before: int, *, dry_run: bool = False
+    ) -> dict[str, int]:
+        idle = set()
+        for conversation_id, conv in self.conversations.items():
+            stamps = [
+                m["created_at"]
+                for m in self.messages
+                if m["conversation_id"] == conversation_id
+            ]
+            if max(stamps, default=conv.created_at) < before:
+                idle.add(conversation_id)
+        messages = sum(1 for m in self.messages if m["conversation_id"] in idle)
+        if not dry_run:
+            self.messages = [m for m in self.messages if m["conversation_id"] not in idle]
+            for conversation_id in idle:
+                del self.conversations[conversation_id]
+        return {"conversations": len(idle), "messages": messages}
+
+    async def idle_attachments(self, before: int) -> list[dict[str, Any]]:
+        used = set()
+        for m in self.messages:
+            trace = m.get("trace") or {}
+            if m["role"] != "assistant" or m["created_at"] < before or not trace:
+                continue
+            ids = set(trace.get("attachments") or [])
+            ids |= {s.get("attachment_id") for s in trace.get("sources") or []}
+            used |= {(m["user_id"], i) for i in ids if i}
+        return [
+            a
+            for a in self.attachments.values()
+            if a["scope"] == "user"
+            and a["created_at"] < before
+            and (a["owner_user_id"], a["id"]) not in used
+        ]
+
+    async def existing_attachment_ids(self, attachment_ids: list[str]) -> set[str]:
+        return {i for i in attachment_ids if i in self.attachments}
 
 
 class FakeKbStore:

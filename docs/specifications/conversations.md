@@ -55,6 +55,50 @@ back in the response.
 At least one turn always stays out of the summary: `CHAT_HOT_MESSAGES` is floored at
 one, because a configured zero would summarise nothing and drop nothing.
 
+### REQ-0052 — generated text is marked as AI-generated on every way out
+
+The assistant's answers are machine-marked as artificially generated (AI Act Art. 50(2)),
+on each channel by which they leave the service:
+
+- the `meta` event of `POST /chat` carries `ai_generated: true` and
+  `generator: "celine-ai-assistant"` beside `conversation_id`;
+- the `POST /chat` response carries the header `AI-Generated: true`;
+- every `assistant` message returned by `GET /conversations/{id}/messages` carries
+  `ai_generated: true`, and every `user` message `ai_generated: false`.
+
+The mark is metadata, not a watermark in the text. No harmonised standard exists for
+text; a statistical watermark needs control of the model's sampler and does not survive
+editing, and C2PA describes media files, not a JSON stream. Metadata on every channel is
+what is technically feasible for this service. The stored-message mark is derived from
+the role: every `assistant` row is model output (REQ-0009).
+
+### REQ-0053 — a stored answer records what produced it
+
+So that a disputed answer can be investigated after the fact, an `assistant` message is
+stored (REQ-0009) together with a trace of what produced it, in the `trace` column of the
+same row:
+
+- `model.requested`: the chat model the service asked for (`LLM_CHAT_MODEL`);
+- `model.reported`: the model the endpoint named in its response (the stream's `model`
+  field, the last one seen), and `model.fingerprint`: its `system_fingerprint`, when the
+  endpoint sends one. Null when the endpoint says nothing. The model's version is
+  whatever the endpoint reports here; the service has no other source for it;
+- `service_version`: the assistant's own version, which fixes the system prompt and the
+  tool definitions the model was given;
+- `attachments`: the ids of the attachments given to the model with the question;
+- `sources`: one entry per retrieved chunk given to the model, hidden ones included
+  (REQ-0022): its `source`, its `score`, and the identifiers in its metadata that name
+  what it came from (`kind`, `doc_id`, `source_id`, `attachment_id`). Not the text;
+- `tools`: one entry per tool call, in the order they ran: the tool `name`, the
+  `arguments` as the model sent them (the raw string when it is not valid JSON), and
+  `failed: true` when the tool raised. Not the tool's result.
+
+The trace lives and dies with its message: it is scoped to the same user, deleted with
+the conversation (REQ-0011), and kept exactly as long as the conversation is. No route
+returns it; `GET /conversations/{id}/messages` returns the same fields with or without
+it. An operator reads it from the database. A `user` message has no trace, and neither
+does an `assistant` message stored before this requirement: the column is null for both.
+
 ---
 
 ## Known limits

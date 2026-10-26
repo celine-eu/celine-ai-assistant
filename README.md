@@ -133,6 +133,21 @@ celine-assistant kb migrate-legacy --community <community> --git <training-mater
 celine-assistant kb prune --legacy   # once satisfied: deletes the old collection
 ```
 
+## Erasure and retention
+
+A member's data is deleted on request or once idle for `RETENTION_MONTHS` (12, as the
+privacy notice promises). See [the requirements](docs/specifications/erasure.md).
+
+```bash
+celine-assistant erase-subject <sub> [--yes]        # one person; also POST /admin/subjects/erase
+celine-assistant retention run [--dry-run] [--months N]   # daily, from the chart's CronJob
+celine-assistant kb orphans [--delete]               # vectors whose attachment is gone
+```
+
+`erase-subject` and `retention run` delete stored files, so they run where the uploads
+are: with local storage, in the service pod or a pod mounting its volume. Elsewhere they
+delete nothing and report each attachment as failed.
+
 ## Skills
 
 The assistant uses a modular skill system. Each skill exposes OpenAI-style function-calling tools that the LLM invokes autonomously during conversation. Skills are registered per-request based on available API endpoints and user authentication.

@@ -288,6 +288,62 @@ async def test_deleting_an_unknown_conversation_is_false_not_an_error(store):
     assert await store.delete_conversation(ALICE, "never-existed") is False
 
 
+TRACE = {
+    "model": {"requested": "chat-model", "reported": "chat-model-v2", "fingerprint": None},
+    "service_version": "1.6.1",
+    "attachments": ["att-1"],
+    "sources": [{"source": "guide.md", "score": 0.4, "doc_id": "d1"}],
+    "tools": [{"name": "get_my_assets", "arguments": {}}],
+}
+
+
+async def stored_traces(session_factory, conversation_id):
+    from sqlalchemy import select
+
+    from celine.assistant.db import Message
+
+    async with session_factory() as session:
+        rows = await session.execute(
+            select(Message.role, Message.trace)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at)
+        )
+        return [tuple(r) for r in rows]
+
+
+# @verifies REQ-0053
+async def test_an_answer_s_trace_is_stored_on_its_row(store, session_factory, clock):
+    conv = await store.get_or_create_conversation(ALICE, "c1")
+    await store.append_message(ALICE, conv.conversation_id, "user", "q")
+    clock.advance(1)
+    await store.append_message(ALICE, conv.conversation_id, "assistant", "a", trace=TRACE)
+
+    assert await stored_traces(session_factory, "c1") == [
+        ("user", None),
+        ("assistant", TRACE),
+    ]
+
+
+# @verifies REQ-0053
+async def test_the_trace_is_not_listed_with_the_messages(store):
+    conv = await store.get_or_create_conversation(ALICE, "c1")
+    await store.append_message(ALICE, conv.conversation_id, "assistant", "a", trace=TRACE)
+
+    (row,) = await store.list_messages(ALICE, "c1")
+
+    assert "trace" not in row
+
+
+# @verifies REQ-0053
+async def test_the_trace_goes_with_its_conversation(store, session_factory):
+    conv = await store.get_or_create_conversation(ALICE, "c1")
+    await store.append_message(ALICE, conv.conversation_id, "assistant", "a", trace=TRACE)
+
+    await store.delete_conversation(ALICE, "c1")
+
+    assert await stored_traces(session_factory, "c1") == []
+
+
 # --- attachments ------------------------------------------------------------
 
 

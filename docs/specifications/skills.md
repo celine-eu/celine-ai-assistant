@@ -75,4 +75,21 @@ writing: a truncated answer is never presented as a complete one.
 `LLM_TEMPERATURE` is sent only when it is set. Unset, the server applies the model's own
 recommended sampling.
 
+### REQ-0055 — a tool that changes anything runs only on the user's confirmation
+
+Every tool declares `"writes": bool` beside its function declaration: true when calling
+it changes anything anywhere, upstream included. The registry strips the key before the
+tools are offered to the model, and treats a missing or non-boolean value as `true`, so
+leaving it out never lets a writing tool through.
+
+A writing tool runs only when the request carries the user's confirmation of that exact
+call: the same tool and the same arguments (key order aside). One confirmation runs one
+call. Without it the tool is not run and the model receives a JSON error with
+`"confirmation_required": true`, which it can explain (REQ-0025).
+
+Every active tool reads. The disabled dataset skill's `query_dataset` sends SQL the model
+wrote and is declared as writing, so re-enabling the skill does not make it callable. No
+confirmation flow exists in the app yet: a registry is built with none, so today every
+writing tool is refused. Offering one at all is a decision still to be taken.
+
 

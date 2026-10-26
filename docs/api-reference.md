@@ -28,6 +28,12 @@ Stream a chat response via Server-Sent Events.
 - Loads authorized attachments and retrieves relevant document chunks from Qdrant.
 - The LLM autonomously invokes registered skills (energy data, weather, flexibility, etc.) via tool calls.
 - Persists the full assistant reply once streaming completes.
+- Stores with that reply a trace of what produced it (REQ-0053): requested and reported
+  model, service version, attachment ids, source ids, tool names and arguments. Kept in
+  the database for investigation; no route returns it.
+- Marks the answer as AI-generated (REQ-0052): the response header `AI-Generated: true`,
+  and `"ai_generated": true, "generator": "celine-ai-assistant"` in the first (`meta`)
+  event beside `conversation_id`.
 
 ---
 
@@ -70,7 +76,8 @@ List all conversations for the authenticated user.
 
 ### `GET /conversations/{id}/messages`
 
-Return all messages in a conversation.
+Return all messages in a conversation. Each message carries `ai_generated`: `true` for
+`assistant` messages, `false` for the caller's own (REQ-0052).
 
 ### `DELETE /conversations/{id}`
 
@@ -108,6 +115,22 @@ with the community as a system-scoped attachment, readable by its members.
 Body: `{"community_id": "…" | null, "full": false}`. Syncs every source registered for
 the community and returns one result per source; a failing source carries an `error`
 and does not stop the others. Replaces `POST /admin/training-materials/sync`.
+
+### `POST /admin/subjects/erase`
+
+Body: `{"sub": "<Keycloak user id>"}`. Erases one person (REQ-0057): their conversations
+and messages (traces included), their own uploads (row, file and every vector), and any
+vector still carrying their id; shared material is kept. **Not** for managers or platform
+administrators: requires the scope `assistant.subject.erase` in the verified token's
+`scope` claim, `403` otherwise. Answers the counts removed per store:
+
+```json
+{"sub": "…", "conversations": 2, "messages": 14, "attachments": 1, "files": 1, "vectors": 3, "failed": []}
+```
+
+Idempotent. When anything could not be deleted it answers `503` with the same body, the
+attachment ids (or `"vectors"`) in `failed`; repeating the call retries them. The subject
+is in the body so that it stays out of access logs.
 
 ---
 

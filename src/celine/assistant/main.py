@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import kb_collections, kb_sources
 from .auth import AuthError
+from .erasure import router as erasure_router
 from .history import HistoryStore
 from .kb_store import KbStore
 from .llm import configuration_problems
@@ -132,5 +133,6 @@ def create_app():
     app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(router)
+    app.include_router(erasure_router)
 
     return app

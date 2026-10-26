@@ -12,7 +12,7 @@ import uuid
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .db import AsyncSessionLocal, Attachment, Conversation, Message
@@ -166,7 +166,11 @@ class HistoryStore:
         conversation_id: str,
         role: str,
         content: str,
+        *,
+        trace: dict[str, Any] | None = None,
     ) -> str:
+        """Store one message. `trace` is what produced an `assistant` message
+        (REQ-0053); it is written with the row and never listed by `list_messages`."""
         async with self._session() as session:
             async with session.begin():
                 msg = Message(
@@ -176,6 +180,7 @@ class HistoryStore:
                     role=role,
                     content=content,
                     created_at=int(time.time()),
+                    trace=trace,
                 )
                 session.add(msg)
             return msg.id
@@ -338,6 +343,150 @@ class HistoryStore:
                 data = _att_dict(att)
                 await session.delete(att)
             return data
+
+    # ------------------------------------------------------------------
+    # Erasure and retention (REQ-0057..0059). `erasure.py` drives these;
+    # an attachment's file and vectors are deleted there, not here.
+    # ------------------------------------------------------------------
+
+    async def delete_conversations_of(self, user_id: str) -> dict[str, int]:
+        """Delete every conversation of `user_id` and every message stored under it.
+
+        Messages are deleted by their own `user_id` as well as by conversation, so none
+        survives in a conversation the person does not own. Returns the counts.
+        """
+        async with self._session() as session:
+            async with session.begin():
+                owned = select(Conversation.conversation_id).where(
+                    Conversation.user_id == user_id
+                )
+                messages = await session.execute(
+                    delete(Message).where(
+                        or_(Message.user_id == user_id, Message.conversation_id.in_(owned))
+                    )
+                )
+                conversations = await session.execute(
+                    delete(Conversation).where(Conversation.user_id == user_id)
+                )
+            return {
+                "conversations": int(conversations.rowcount or 0),
+                "messages": int(messages.rowcount or 0),
+            }
+
+    async def attachments_owned_by(self, user_id: str) -> list[dict[str, Any]]:
+        """Every `user`-scope attachment of `user_id`, unbounded, oldest first."""
+        async with self._session() as session:
+            stmt = (
+                select(Attachment)
+                .where(Attachment.scope == "user", Attachment.owner_user_id == user_id)
+                .order_by(Attachment.created_at.asc())
+            )
+            return [_att_dict(a) for a in (await session.execute(stmt)).scalars().all()]
+
+    async def delete_idle_conversations(
+        self, before: int, *, dry_run: bool = False
+    ) -> dict[str, int]:
+        """Delete each conversation whose newest message (or, with none, its creation)
+        is older than `before`, with its messages. Returns the counts, also when
+        `dry_run` deletes nothing."""
+        newest = (
+            select(
+                Message.conversation_id.label("conversation_id"),
+                func.max(Message.created_at).label("newest"),
+            )
+            .group_by(Message.conversation_id)
+            .subquery()
+        )
+        idle = select(Conversation.conversation_id).outerjoin(
+            newest, newest.c.conversation_id == Conversation.conversation_id
+        ).where(func.coalesce(newest.c.newest, Conversation.created_at) < before)
+
+        conversations = messages = 0
+        async with self._session() as session, session.begin():
+            ids = list((await session.execute(idle)).scalars().all())
+            for chunk in _chunks(ids):
+                conversations += len(chunk)
+                if dry_run:
+                    counted = await session.execute(
+                        select(func.count(Message.id)).where(
+                            Message.conversation_id.in_(chunk)
+                        )
+                    )
+                    messages += int(counted.scalar_one())
+                    continue
+                result = await session.execute(
+                    delete(Message).where(Message.conversation_id.in_(chunk))
+                )
+                messages += int(result.rowcount or 0)
+                await session.execute(
+                    delete(Conversation).where(Conversation.conversation_id.in_(chunk))
+                )
+        return {"conversations": conversations, "messages": messages}
+
+    async def idle_attachments(self, before: int) -> list[dict[str, Any]]:
+        """`user`-scope attachments uploaded before `before` and not used since.
+
+        A use is an answer to the attachment's owner, stored at or after `before`, whose
+        trace (REQ-0053) lists it among the turn's attachments or as the
+        `attachment_id` of a retrieved source.
+        """
+        async with self._session() as session:
+            candidates = (
+                (
+                    await session.execute(
+                        select(Attachment).where(
+                            Attachment.scope == "user", Attachment.created_at < before
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            owners = sorted({a.owner_user_id for a in candidates if a.owner_user_id})
+            used: set[tuple[str, str]] = set()
+            for chunk in _chunks(owners):
+                rows = await session.execute(
+                    select(Message.user_id, Message.trace).where(
+                        Message.user_id.in_(chunk),
+                        Message.role == "assistant",
+                        Message.created_at >= before,
+                    )
+                )
+                for user_id, trace in rows.all():
+                    used.update((user_id, att_id) for att_id in _used_attachments(trace))
+            return [
+                _att_dict(a) for a in candidates if (a.owner_user_id, a.id) not in used
+            ]
+
+    async def existing_attachment_ids(self, attachment_ids: list[str]) -> set[str]:
+        """Those of `attachment_ids` that still have a row."""
+        found: set[str] = set()
+        async with self._session() as session:
+            for chunk in _chunks(sorted(set(attachment_ids))):
+                result = await session.execute(
+                    select(Attachment.id).where(Attachment.id.in_(chunk))
+                )
+                found.update(result.scalars().all())
+        return found
+
+
+# Under asyncpg's limit of bind parameters per statement, with room to spare.
+_CHUNK = 1000
+
+
+def _chunks(values: list[str]) -> list[list[str]]:
+    return [values[i : i + _CHUNK] for i in range(0, len(values), _CHUNK)]
+
+
+def _used_attachments(trace: Any) -> set[str]:
+    """The attachment ids one stored answer's trace says it used."""
+    if not isinstance(trace, dict):
+        return set()
+    ids = {a for a in trace.get("attachments") or [] if isinstance(a, str)}
+    for source in trace.get("sources") or []:
+        if isinstance(source, dict) and isinstance(source.get("attachment_id"), str):
+            ids.add(source["attachment_id"])
+    return ids
 
 
 def get_history_store(request: Request) -> HistoryStore:

@@ -7,6 +7,13 @@ ProgressCallback = Callable[[str], Awaitable[None]]
 
 
 class Skill(ABC):
+    """A group of tools the model may call.
+
+    Each tool `get_tools` returns is an OpenAI function declaration plus one key of
+    ours beside `"type"`: `"writes": bool`, true when calling it changes anything
+    anywhere. The registry refuses a writing tool the member has not confirmed, and
+    treats a missing `writes` as true (REQ-0055).
+    """
 
     name: str
     description: str = ""

@@ -47,6 +47,7 @@ class DigitalTwinSkill(Skill):
         return [
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "query_participant_profile",
                     "description": (
@@ -62,6 +63,7 @@ class DigitalTwinSkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "query_participant_metrics",
                     "description": (
@@ -85,6 +87,7 @@ class DigitalTwinSkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "query_community_metrics",
                     "description": (
@@ -106,6 +109,7 @@ class DigitalTwinSkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "query_participant_assets",
                     "description": (

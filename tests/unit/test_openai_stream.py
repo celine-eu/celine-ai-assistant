@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from celine.assistant import openai_stream
+from celine.assistant.answer_trace import AnswerTrace
 from celine.assistant.openai_stream import (
     _agentic_loop,
     _truncate_tool_result,
@@ -112,6 +113,7 @@ class ScriptedSkill(Skill):
         return [
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "do_thing",
                     "description": "does a thing",
@@ -147,6 +149,12 @@ async def collect(agen) -> list[tuple[str, Any]]:
 
 def types_of(events) -> list[str]:
     return [e for e, _ in events]
+
+
+def tool_payload(content: str) -> str:
+    """A tool turn's result, out of the data block it travels in (REQ-0054)."""
+    inner = content.split("\n", 1)[1].rsplit("\n", 1)[0]
+    return inner.split("\n", 1)[1]  # drop the `source:` line
 
 
 # ---------------------------------------------------------------------------
@@ -296,11 +304,9 @@ async def test_a_tool_call_runs_the_skill_and_feeds_the_result_back():
 
     assistant_turn, tool_turn = messages
     assert assistant_turn["tool_calls"][0]["function"]["name"] == "do_thing"
-    assert tool_turn == {
-        "role": "tool",
-        "tool_call_id": "call-1",
-        "content": '{"temperature": 21}',
-    }
+    assert tool_turn["role"] == "tool"
+    assert tool_turn["tool_call_id"] == "call-1"
+    assert tool_payload(tool_turn["content"]) == '{"temperature": 21}'
 
 
 async def test_a_failing_tool_is_reported_and_the_conversation_continues():
@@ -322,7 +328,7 @@ async def test_a_failing_tool_is_reported_and_the_conversation_continues():
     )
 
     assert "tool_error" in types_of(events)
-    assert json.loads(messages[-1]["content"]) == {"error": "upstream is down"}
+    assert json.loads(tool_payload(messages[-1]["content"])) == {"error": "upstream is down"}
 
 
 # @verifies REQ-0007
@@ -610,3 +616,150 @@ async def test_a_zero_hot_message_setting_is_floored_at_one_turn(monkeypatch, ho
     sent = client.completions.calls[1]["messages"]
     assert sent[1]["content"].startswith("[Summary of earlier conversation]")
     assert sent[-1]["content"] == "four words go here"
+
+
+# ---------------------------------------------------------------------------
+# The answer's trace (REQ-0053)
+# ---------------------------------------------------------------------------
+
+
+def from_model(chunk, model: str | None, fingerprint: str | None = None):
+    """A chunk as a real endpoint sends it: each one names the model that produced it."""
+    chunk.model = model
+    chunk.system_fingerprint = fingerprint
+    return chunk
+
+
+def blank_trace() -> AnswerTrace:
+    return AnswerTrace.for_turn(context_blocks=[], attachment_ids=[])
+
+
+# @verifies REQ-0053
+async def test_the_trace_keeps_the_model_the_endpoint_reported():
+    trace = blank_trace()
+    client = FakeClient(
+        [[from_model(text_chunk("hi", "stop"), "qwen3-32b-awq", "fp-1")]]
+    )
+
+    await collect(_agentic_loop(client, [], [], None, trace=trace))
+
+    model = trace.to_dict()["model"]
+    assert model == {
+        "requested": settings.llm_chat_model,
+        "reported": "qwen3-32b-awq",
+        "fingerprint": "fp-1",
+    }
+
+
+# @verifies REQ-0053
+async def test_an_endpoint_that_names_no_model_leaves_the_reported_model_null():
+    trace = blank_trace()
+    client = FakeClient([[text_chunk("hi", "stop")]])
+
+    await collect(_agentic_loop(client, [], [], None, trace=trace))
+
+    assert trace.to_dict()["model"]["reported"] is None
+    assert trace.to_dict()["model"]["fingerprint"] is None
+
+
+# @verifies REQ-0053
+async def test_the_trace_keeps_each_tool_call_its_arguments_and_whether_it_failed():
+    trace = blank_trace()
+    failing = ScriptedSkill(raises=RuntimeError("upstream is down"))
+    client = FakeClient(
+        [
+            [
+                tool_chunk(call_id="c1", name="do_thing", arguments='{"day": '),
+                tool_chunk(arguments='"2026-10-26"}', finish_reason="tool_calls"),
+            ],
+            [tool_chunk(call_id="c2", name="do_thing", arguments="{not json", finish_reason="tool_calls")],
+            [text_chunk("done", "stop")],
+        ]
+    )
+    registry = registry_with(failing)
+
+    await collect(_agentic_loop(client, [], [{"type": "function"}], registry, trace=trace))
+
+    assert trace.to_dict()["tools"] == [
+        {"name": "do_thing", "arguments": {"day": "2026-10-26"}, "failed": True},
+        # Unparseable arguments are kept as sent: that is what needs investigating.
+        {"name": "do_thing", "arguments": "{not json", "failed": True},
+    ]
+
+
+# @verifies REQ-0053
+async def test_a_tool_that_succeeds_is_not_marked_failed_and_its_result_is_not_kept():
+    trace = blank_trace()
+    client = FakeClient(
+        [
+            [tool_chunk(call_id="c1", name="do_thing", arguments="{}", finish_reason="tool_calls")],
+            [text_chunk("ok", "stop")],
+        ]
+    )
+
+    await collect(
+        _agentic_loop(
+            client, [], [{"type": "function"}], registry_with(ScriptedSkill('{"secret": 1}')), trace=trace
+        )
+    )
+
+    (call,) = trace.to_dict()["tools"]
+    assert call == {"name": "do_thing", "arguments": {}}
+    assert "secret" not in json.dumps(trace.to_dict())
+
+
+# @verifies REQ-0053
+async def test_stream_chat_hands_the_trace_to_the_loop(monkeypatch):
+    trace = blank_trace()
+    client = FakeClient([[from_model(text_chunk("ok", "stop"), "served-name")]])
+    monkeypatch.setattr(openai_stream, "_client", lambda: client)
+
+    await collect(stream_chat(user_message="hi", context_blocks=[], trace=trace))
+
+    assert trace.to_dict()["model"]["reported"] == "served-name"
+
+
+# @verifies REQ-0053
+def test_the_trace_names_each_source_but_keeps_none_of_its_text():
+    trace = AnswerTrace.for_turn(
+        context_blocks=[
+            {
+                "source": "attached_files",
+                "text": "User attached ...",
+                "score": 1.0,
+                "metadata": {"kind": "attachment_context"},
+            },
+            {
+                "source": "git://guides/solar.md",
+                "title": "Solar",
+                "text": "private wording of the guide",
+                "score": 0.42,
+                "metadata": {
+                    "kind": "kb_source",
+                    "hidden": True,
+                    "source_id": "src-1",
+                    "doc_id": "doc-9",
+                    "owner_user_id": "alice",
+                    "community_id": "example-rec",
+                },
+            },
+        ],
+        attachment_ids=["att-1"],
+    )
+
+    out = trace.to_dict()
+
+    assert out["attachments"] == ["att-1"]
+    assert out["sources"] == [
+        {"source": "attached_files", "score": 1.0, "kind": "attachment_context"},
+        {
+            "source": "git://guides/solar.md",
+            "score": 0.42,
+            "kind": "kb_source",
+            "doc_id": "doc-9",
+            "source_id": "src-1",
+        },
+    ]
+    assert "private wording" not in json.dumps(out)
+    assert out["tools"] == []
+    assert "service_version" in out

@@ -37,7 +37,9 @@ to the model: source material is context a reader cannot follow a citation to. *
 
 Files named in a chat request are authorised, summarised into a single context block —
 filename, type, scope and description — and placed **first**, ahead of anything retrieval
-found. The user attached it a second ago; it outranks a similarity score.
+found. The user attached it a second ago; it outranks a similarity score. The block
+describes the files in neutral words; how much weight they deserve is the model's call,
+under REQ-0054 like any other context.
 
 ### REQ-0024 — a turn with attachments and no text is still a question
 
@@ -63,6 +65,29 @@ Because the model is part of the alias, a new model's knowledge bases are built 
 the current ones (`--embed-model`), and the deploy that changes `LLM_EMBED_MODEL` is the
 switch. The service refuses to start when a community has knowledge bases only for
 another model.
+
+### REQ-0054 — text the user did not write reaches the model as data, never as instructions
+
+Retrieved chunks, the attachment block (file names and image or document descriptions)
+and every tool result are written by someone other than the user: a manager's upload, a
+registered source, a vision model, another service. Each reaches the model inside its
+own data block, `<data-… kind="document|attachments|tool_result">` … `</data-…>`, with
+its source on the first line inside.
+
+- The tag is drawn at random for each turn (64 bits) and is the same for the system
+  prompt, the context and the tool results of that turn.
+- Every occurrence of the tag is removed from the wrapped text and from its source line,
+  repeatedly, so nothing inside a block can close it or open another.
+- The system prompt names the tag and says that text inside it is data to answer from:
+  instructions, requests and role changes written there are never followed, and links
+  are not output unless they come from the user's message or a cited source.
+- The image caption prompt asks for visible text as quoted content, and never to follow
+  it. The caption reaches the chat model only inside a data block.
+
+What the code guarantees is the prompt's structure, and the tests pin it against a set
+of poisoned chunks, captions, file names and tool results. Whether a given model honours
+the rule is a property of the model, measured by running the same payloads against it;
+that suite is not part of the default run.
 
 ---
 

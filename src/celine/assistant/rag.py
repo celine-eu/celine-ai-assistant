@@ -18,6 +18,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
 from celine.assistant import kb_collections, llm
+from celine.assistant.settings import settings
 
 log = logging.getLogger(__name__)
 
@@ -268,6 +269,92 @@ def delete_where(name: str, key: str, value: str) -> None:
             )
         ),
     )
+
+
+# --- erasure (REQ-0056, REQ-0057, REQ-0059) ---------------------------------------
+
+
+def erasable_collections() -> list[str]:
+    """Every collection a vector of this service can sit in.
+
+    Each knowledge-base generation of every community and embedding model, whether an
+    alias points at it or not, and the collection written before knowledge bases were
+    per community. Generations, not aliases: an alias only names one of them.
+    """
+    client = qdrant()
+    names = kb_collections.generations(client)
+    if client.collection_exists(settings.qdrant_collection):
+        names.append(settings.qdrant_collection)
+    return names
+
+
+def _payload_filter(
+    match: dict[str, str], exclude: dict[str, str] | None = None
+) -> qm.Filter:
+    def _conditions(terms: dict[str, str]) -> list[Any]:
+        return [
+            qm.FieldCondition(key=key, match=qm.MatchValue(value=value))
+            for key, value in terms.items()
+        ]
+
+    return qm.Filter(
+        must=_conditions(match), must_not=_conditions(exclude) if exclude else None
+    )
+
+
+def count_matching(
+    name: str, match: dict[str, str], exclude: dict[str, str] | None = None
+) -> int:
+    """How many points of one collection carry every `match` value and no `exclude` one."""
+    return qdrant().count(
+        name, count_filter=_payload_filter(match, exclude), exact=True
+    ).count
+
+
+def delete_matching(
+    name: str, match: dict[str, str], exclude: dict[str, str] | None = None
+) -> int:
+    """Delete the points `count_matching` counts, and return how many there were."""
+    found = count_matching(name, match, exclude)
+    if found:
+        qdrant().delete(
+            name,
+            points_selector=qm.FilterSelector(filter=_payload_filter(match, exclude)),
+            wait=True,
+        )
+    return found
+
+
+def delete_everywhere(
+    match: dict[str, str], exclude: dict[str, str] | None = None
+) -> dict[str, int]:
+    """`delete_matching` in every `erasable_collections()`: the collections that held
+    any, with how many. Raises on the first collection that fails."""
+    removed: dict[str, int] = {}
+    for name in erasable_collections():
+        if count := delete_matching(name, match, exclude):
+            removed[name] = count
+    return removed
+
+
+def attachment_vector_counts(name: str) -> dict[str, int]:
+    """Each `attachment_id` indexed in one collection, with how many points carry it."""
+    counts: dict[str, int] = {}
+    offset = None
+    while True:
+        points, offset = qdrant().scroll(
+            name,
+            limit=256,
+            offset=offset,
+            with_payload=["attachment_id"],
+            with_vectors=False,
+        )
+        for p in points:
+            value = (p.payload or {}).get("attachment_id")
+            if isinstance(value, str):
+                counts[value] = counts.get(value, 0) + 1
+        if offset is None:
+            return counts
 
 
 def _node_text(node: BaseNode) -> str:

@@ -29,12 +29,13 @@ grep -rho "@verifies REQ-[0-9]\{4\}" tests/ | sort | uniq -c
 | | |
 |---|---|
 | REQ-0001 – REQ-0005, REQ-0040, REQ-0047 | [identity and authorisation](identity.md) |
-| REQ-0006 – REQ-0013 | [conversations](conversations.md) |
+| REQ-0006 – REQ-0013, REQ-0052 – REQ-0053 | [conversations](conversations.md) |
 | REQ-0014 – REQ-0021, REQ-0048 – REQ-0049 | [attachments](attachments.md) |
-| REQ-0022 – REQ-0024, REQ-0041 | [retrieval](retrieval.md) |
-| REQ-0025 – REQ-0030, REQ-0051 | [skills and the tool loop](skills.md) |
+| REQ-0022 – REQ-0024, REQ-0041, REQ-0054 | [retrieval](retrieval.md) |
+| REQ-0025 – REQ-0030, REQ-0051, REQ-0055 | [skills and the tool loop](skills.md) |
 | REQ-0031 – REQ-0033, REQ-0042 – REQ-0044 | [knowledge sources](knowledge-sources.md) |
 | REQ-0034, REQ-0045 – REQ-0046, REQ-0050 | [operability](operability.md) |
+| REQ-0056 – REQ-0059 | [erasure and retention](erasure.md) |
 
 ## What is not here
 

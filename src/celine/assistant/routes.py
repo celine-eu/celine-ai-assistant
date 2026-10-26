@@ -9,7 +9,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from . import kb_sources
+from . import erasure, kb_sources
 from .attachment_index import extract, index_attachment
 from .auth import (
     UserIdentity,
@@ -28,20 +28,18 @@ from .models import (
     KbSyncRequest,
 )
 from .rag import (
-    attachment_doc_id,
     build_retriever,
-    delete_document,
     node_to_source,
     retrieve,
 )
 from .history import HistoryStore, get_history_store
+from .answer_trace import AnswerTrace
 from .openai_stream import stream_chat
 from .uploads import (
     INLINE_TYPES,
     StoredFile,
     UnsupportedUpload,
     classify_upload,
-    delete_upload,
     open_upload_stream,
     served_type,
     store_upload,
@@ -53,6 +51,11 @@ from .suggestions import get_suggestions, get_tool_labels
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# REQ-0052 (AI Act Art. 50(2)): the machine-readable mark on generated text, in the
+# stream's `meta` event and as a response header; stored answers get it when read.
+AI_GENERATED_HEADER = "AI-Generated"
+AI_MARK = {"ai_generated": True, "generator": "celine-ai-assistant"}
 
 
 def _sse(event_type: str, data) -> str:
@@ -112,7 +115,7 @@ def _attachment_context_block(atts: list[dict]) -> dict:
             lines.append("  description: (no description available)")
 
     text = (
-        "User attached the following files. Treat these as highly relevant context for this message:\n"
+        "Files the user attached to this message (names and descriptions as recorded):\n"
         + "\n".join(lines)
     )
 
@@ -412,24 +415,14 @@ async def delete_attachment(
     ):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    await history_store.delete_attachment_any(attachment_id)
-
+    # Vectors in every collection, then the file, then the row (REQ-0056): on a failure
+    # the row stays, so nothing is left behind without a way to find it again.
     try:
-        await delete_upload(att["path"])
-    except Exception:
-        log.exception("attachments_delete_blob_failed", extra={"path": att.get("path")})
-
-    # The row and the blob are not the whole attachment: `_process_upload` also wrote it
-    # into the vector store, and content left retrievable has not been deleted.
-    try:
-        if community_id:
-            await delete_document(
-                attachment_doc_id(attachment_id), community_id=community_id
-            )
-    except Exception:
-        log.exception(
-            "attachments_delete_index_failed", extra={"attachment": attachment_id}
-        )
+        await erasure.delete_attachment(history_store, att)
+    except erasure.AttachmentNotDeleted:
+        raise HTTPException(
+            status_code=503, detail="Attachment not deleted completely; retry"
+        ) from None
 
     return {"status": "deleted", "attachment_id": attachment_id}
 
@@ -542,9 +535,15 @@ async def chat(
     if prior_messages and prior_messages[-1].get("role") == "user":
         prior_messages = prior_messages[:-1]
 
+    # REQ-0053: what this answer is produced from, stored with it.
+    trace = AnswerTrace.for_turn(
+        context_blocks=sources,
+        attachment_ids=[a["id"] for a in attached],
+    )
+
     async def gen() -> AsyncGenerator[str, None]:
         assistant_text_parts: list[str] = []
-        yield _sse("meta", {"conversation_id": conv.conversation_id})
+        yield _sse("meta", {"conversation_id": conv.conversation_id, **AI_MARK})
         if req.include_citations:
             yield _sse("sources", public_sources)
 
@@ -553,6 +552,7 @@ async def chat(
             context_blocks=sources,
             history=prior_messages,
             skill_registry=skill_registry,
+            trace=trace,
         ):
             if event_str.startswith("event: token\n"):
                 data_line = event_str.split("data: ", 1)[1].rstrip("\n")
@@ -572,6 +572,7 @@ async def chat(
                     conv.conversation_id,
                     "assistant",
                     full_text,
+                    trace=trace.to_dict(),
                 )
         except Exception:
             log.exception("history_append_assistant_failed")
@@ -581,7 +582,11 @@ async def chat(
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            AI_GENERATED_HEADER: "true",
+        },
     )
 
 
@@ -619,7 +624,9 @@ async def conversation_messages(
     messages = await history_store.list_messages(
         user.user_id, conversation_id, limit=limit
     )
-    return {"messages": messages, "limit": limit}
+    # REQ-0052: every stored assistant row is model output (REQ-0009).
+    marked = [{**m, "ai_generated": m["role"] == "assistant"} for m in messages]
+    return {"messages": marked, "limit": limit}
 
 
 @router.delete("/conversations/{conversation_id}")

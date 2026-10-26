@@ -7,6 +7,9 @@
     celine-assistant kb reindex (--community X | --all) [--re-extract] [--embed-model M --embed-dimensions N]
     celine-assistant kb prune [--keep N] [--legacy] [--dry-run]
     celine-assistant kb migrate-legacy --community X [--git URL] [--dry-run]
+    celine-assistant kb orphans [--delete]
+    celine-assistant erase-subject SUB [--yes]
+    celine-assistant retention run [--months N] [--dry-run]
 
 Every command prints JSON. Needs what the service needs: `DATABASE_URL`, `QDRANT_*`,
 `LLM_EMBED_*`.
@@ -21,7 +24,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 import typer
 
-from . import kb_admin, kb_collections, kb_sources, rag
+from . import erasure, kb_admin, kb_collections, kb_sources, rag
 from .history import HistoryStore
 from .kb_store import KbStore
 from .logging_ import configure_logging
@@ -30,8 +33,10 @@ from .settings import settings
 app = typer.Typer(no_args_is_help=True, help="CELINE AI assistant operations.")
 kb = typer.Typer(no_args_is_help=True, help="Per-community knowledge bases.")
 source = typer.Typer(no_args_is_help=True, help="Registered knowledge sources.")
+retention = typer.Typer(no_args_is_help=True, help="Retention of members' data.")
 app.add_typer(kb, name="kb")
 kb.add_typer(source, name="source")
+app.add_typer(retention, name="retention")
 
 
 def _print(data: Any) -> None:
@@ -258,3 +263,62 @@ def migrate_legacy_cmd(
         )
 
     _print(_run(_go))
+
+
+@kb.command("orphans")
+def orphans_cmd(
+    delete: bool = typer.Option(False, "--delete", help="Delete the vectors listed."),
+) -> None:
+    """Vectors whose attachment no longer exists, in every collection (REQ-0059)."""
+
+    async def _go(history: HistoryStore, kb_store: KbStore) -> Any:
+        return await erasure.orphan_vectors(history, delete=delete)
+
+    _print(_run(_go))
+
+
+def _exit_on_failures(report: dict[str, Any]) -> None:
+    if report.get("failed"):
+        raise typer.Exit(1)
+
+
+@app.command("erase-subject")
+def erase_subject_cmd(
+    sub: str = typer.Argument(..., help="The person's `sub` (Keycloak user id)."),
+    yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation."),
+) -> None:
+    """Delete a person's conversations, own uploads and vectors (REQ-0057).
+
+    Shared material is kept. Safe to repeat; exits 1 when something could not be
+    deleted, which a repeat retries.
+    """
+    if not sub.strip():
+        raise typer.BadParameter("an empty subject names nobody")
+    if not yes:
+        typer.confirm(
+            "Erase every conversation, upload and vector of this person?", abort=True
+        )
+
+    async def _go(history: HistoryStore, kb_store: KbStore) -> Any:
+        return await erasure.erase_subject(history, sub)
+
+    report = _run(_go)
+    _print({"sub": sub.strip(), **report})
+    _exit_on_failures(report)
+
+
+@retention.command("run")
+def retention_run_cmd(
+    months: int | None = typer.Option(
+        None, min=1, help="Override RETENTION_MONTHS for this run."
+    ),
+    dry_run: bool = typer.Option(False, help="Count what would go; delete nothing."),
+) -> None:
+    """Delete members' conversations and own uploads idle for the period (REQ-0058)."""
+
+    async def _go(history: HistoryStore, kb_store: KbStore) -> Any:
+        return await erasure.run_retention(history, months=months, dry_run=dry_run)
+
+    report = _run(_go)
+    _print(report)
+    _exit_on_failures(report)

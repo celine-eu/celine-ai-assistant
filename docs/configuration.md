@@ -63,6 +63,12 @@ collection until they are uploaded again.
 | `DB_POOL_TIMEOUT` | `int` | `30` | Pool timeout in seconds |
 | `DB_POOL_RECYCLE` | `int` | `1800` | Connection recycle time in seconds |
 
+## Retention
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `RETENTION_MONTHS` | `int` | `12` | `celine-assistant retention run` deletes members' conversations and own uploads idle for this many months (REQ-0058). At least 1 |
+
 ## Authentication
 
 | Variable | Type | Default | Description |

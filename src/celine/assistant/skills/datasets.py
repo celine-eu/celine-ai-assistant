@@ -27,6 +27,7 @@ class DatasetSkill(Skill):
         return [
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "list_datasets",
                     "description": (
@@ -42,6 +43,7 @@ class DatasetSkill(Skill):
             },
             {
                 "type": "function",
+                "writes": True,  # POSTs SQL the model wrote (REQ-0055)
                 "function": {
                     "name": "query_dataset",
                     "description": (

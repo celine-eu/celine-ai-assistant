@@ -59,6 +59,7 @@ class WeatherSkill(Skill):
         return [
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_weather_current",
                     "description": (
@@ -73,6 +74,7 @@ class WeatherSkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_weather_forecast",
                     "description": (
@@ -88,6 +90,7 @@ class WeatherSkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_weather_alerts",
                     "description": (
@@ -102,6 +105,7 @@ class WeatherSkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_energy_forecast",
                     "description": (

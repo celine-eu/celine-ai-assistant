@@ -29,11 +29,17 @@ def fake_llm(monkeypatch):
     """Replace the LLM with two tokens, and capture what it was asked."""
     seen: dict = {}
 
-    async def _stream_chat(*, user_message, context_blocks, history=None, skill_registry=None):
+    async def _stream_chat(
+        *, user_message, context_blocks, history=None, skill_registry=None, trace=None
+    ):
         seen["user_message"] = user_message
         seen["context_blocks"] = context_blocks
         seen["history"] = history
         seen["skill_registry"] = skill_registry
+        seen["trace"] = trace
+        if trace is not None:
+            # What the real loop records when the model calls a tool (REQ-0053).
+            trace.tool_called("get_weather_forecast", '{"days": 2}')
         for token in ("Solar ", "panels."):
             yield f"event: token\ndata: {json.dumps(token)}\n\n"
 
@@ -74,6 +80,19 @@ async def test_a_turn_is_framed_by_meta_and_done(
     assert [e for e, _ in events] == ["meta", "sources", "token", "token", "done"]
     assert events[0][1]["conversation_id"]
     assert events[-1][1] is None
+
+
+# @verifies REQ-0052
+async def test_the_stream_is_marked_as_ai_generated(
+    client, user_headers, fake_llm, fake_retrieval
+):
+    r = await chat(client, user_headers, message="what is solar?")
+
+    assert r.headers["ai-generated"] == "true"
+    meta = sse(r)[0][1]
+    assert meta["ai_generated"] is True
+    assert meta["generator"] == "celine-ai-assistant"
+    assert meta["conversation_id"]
 
 
 # @verifies REQ-0007
@@ -157,6 +176,55 @@ async def test_prior_history_is_replayed_without_the_message_just_stored(
         {"role": "user", "content": "earlier question"},
         {"role": "assistant", "content": "earlier answer"},
     ]
+
+
+# @verifies REQ-0053
+async def test_the_stored_answer_carries_its_trace_and_the_question_none(
+    client, history, member_headers, fake_llm, fake_retrieval
+):
+    fake_retrieval(
+        [
+            system_node("Public note.", title="Public", source="shared/note.pdf"),
+            curated_node("Internal note.", title="Internal", source_id="src-1"),
+        ]
+    )
+    att_id = await attach(history)
+
+    await chat(client, member_headers, message="tell me", attachment_ids=[att_id])
+
+    question, answer = history.messages
+    assert question["trace"] is None
+    trace = answer["trace"]
+    assert trace["model"]["requested"] == "test-chat"
+    assert trace["attachments"] == [att_id]
+    # Hidden chunks reached the model, so they are part of what produced the answer.
+    assert [s["source"] for s in trace["sources"]] == [
+        "attached_files",
+        "shared/note.pdf",
+        "Internal",
+    ]
+    assert trace["sources"][2]["source_id"] == "src-1"
+    assert trace["tools"] == [
+        {"name": "get_weather_forecast", "arguments": {"days": 2}}
+    ]
+    assert "Internal note." not in json.dumps(trace)
+
+
+# @verifies REQ-0053
+async def test_the_trace_is_not_returned_with_the_messages(
+    client, history, member_headers, fake_llm, fake_retrieval
+):
+    r = await chat(client, member_headers, message="what is solar?")
+    conversation_id = sse(r)[0][1]["conversation_id"]
+
+    body = (
+        await client.get(
+            f"/conversations/{conversation_id}/messages", headers=member_headers
+        )
+    ).json()
+
+    assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
+    assert all("trace" not in m for m in body["messages"])
 
 
 # @verifies REQ-0009

@@ -36,6 +36,7 @@ class RecRegistrySkill(Skill):
         return [
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_my_rec_profile",
                     "description": (
@@ -51,6 +52,7 @@ class RecRegistrySkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_my_community_details",
                     "description": (
@@ -66,6 +68,7 @@ class RecRegistrySkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_my_assets",
                     "description": (
@@ -82,6 +85,7 @@ class RecRegistrySkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_my_asset_detail",
                     "description": (
@@ -102,6 +106,7 @@ class RecRegistrySkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_my_delivery_points",
                     "description": (

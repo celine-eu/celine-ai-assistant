@@ -53,6 +53,7 @@ class FlexibilitySkill(Skill):
         return [
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_flexibility_suggestions",
                     "description": (
@@ -69,6 +70,7 @@ class FlexibilitySkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_gamification_status",
                     "description": (
@@ -86,6 +88,7 @@ class FlexibilitySkill(Skill):
             },
             {
                 "type": "function",
+                "writes": False,
                 "function": {
                     "name": "get_commitment_history",
                     "description": (

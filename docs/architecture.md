@@ -32,7 +32,8 @@ changing anything on this path.
 | Knowledge bases | `kb_collections.py` | Per-community alias naming, embedding fingerprint, generations, startup check (ADR-0008) |
 | Knowledge sources | `kb_sources.py`, `kb_store.py` | Registered git/directory sources per community; incremental Markdown indexing |
 | Attachment indexing | `attachment_index.py` | Extraction and indexing shared by uploads and rebuilds |
-| Knowledge-base operations | `kb_admin.py`, `cli.py` | `celine-assistant kb`: status, sync, reindex, prune, migrate-legacy |
+| Knowledge-base operations | `kb_admin.py`, `cli.py` | `celine-assistant kb`: status, sync, reindex, prune, migrate-legacy, orphans |
+| Erasure and retention | `erasure.py`, `cli.py` | One attachment delete that reaches every vector; `erase-subject` and `POST /admin/subjects/erase`; `retention run` (REQ-0056..0059) |
 | Settings | `settings.py` | Pydantic-settings environment configuration |
 
 ### Modules that are not part of the pipeline

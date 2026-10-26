@@ -37,7 +37,7 @@ def tool(name: str, properties: dict[str, Any] | None = None, required=None) -> 
     if required is not None:
         params["required"] = required
     fn["parameters"] = params
-    return {"type": "function", "function": fn}
+    return {"type": "function", "writes": False, "function": fn}
 
 
 # --- schema rewriting -------------------------------------------------------

@@ -67,6 +67,22 @@ async def test_messages_are_returned_in_order(client, history, user_headers):
     assert [m["role"] for m in body["messages"]] == ["user", "assistant", "user"]
 
 
+# @verifies REQ-0052
+async def test_answers_are_marked_as_ai_generated_and_questions_are_not(
+    client, history, user_headers
+):
+    await seed(history, USER_ID, "mine", "a question", "an answer")
+
+    body = (
+        await client.get("/conversations/mine/messages", headers=user_headers)
+    ).json()
+
+    assert [(m["role"], m["ai_generated"]) for m in body["messages"]] == [
+        ("user", False),
+        ("assistant", True),
+    ]
+
+
 # @verifies REQ-0010
 async def test_another_user_s_conversation_is_not_found(client, history, user_headers):
     await seed(history, OTHER_USER_ID, "theirs", "secret")
